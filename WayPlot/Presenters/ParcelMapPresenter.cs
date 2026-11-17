@@ -29,7 +29,8 @@ public sealed class ParcelMapPresenter(
     IParcelMapView view,
     ParcelService parcels,
     LeadService leads,
-    ContactService contacts)
+    ContactService contacts,
+    InteractionService interactions)
 {
     private readonly Dictionary<Guid, ParcelDto> _byId = [];
     private int _selectionToken;
@@ -148,6 +149,32 @@ public sealed class ParcelMapPresenter(
         catch (Exception)
         {
             return ServiceResult<LeadDto>.Fail("The stage could not be changed. Check the database connection and try again.");
+        }
+    }
+
+    public async Task<ServiceResult<IReadOnlyList<LeadListItem>>> SearchLeadsAsync(string? search)
+    {
+        try
+        {
+            return await leads.ListAsync(null, search);
+        }
+        catch (Exception)
+        {
+            return ServiceResult<IReadOnlyList<LeadListItem>>.Fail(
+                "Could not search leads. Check the database connection and try again.");
+        }
+    }
+
+    public async Task<ServiceResult<InteractionListItem>> LogInteractionAsync(LogInteractionRequest request)
+    {
+        try
+        {
+            return await interactions.LogAsync(request);
+        }
+        catch (Exception)
+        {
+            return ServiceResult<InteractionListItem>.Fail(
+                "The interaction could not be logged. Check the database connection and try again.");
         }
     }
 

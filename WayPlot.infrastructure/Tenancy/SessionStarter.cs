@@ -57,6 +57,7 @@ public sealed class SessionStarter(SessionContext session, TenantSession tenant,
                 await db.SaveChangesAsync();
             }
 
+            session.BranchId = staff?.BranchId;
             return RuleResult.Success();
         }
         catch (Exception ex) when (ex is SqlException or DbUpdateException)

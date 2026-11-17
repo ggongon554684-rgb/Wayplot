@@ -22,6 +22,7 @@ namespace WayPlot.Views
             toolbar = new TableLayoutPanel();
             lblTitle = new Label();
             txtSearch = new TextBox();
+            btnImport = new Button();
             btnNew = new Button();
             lblSummary = new Label();
             listContacts = new ListView();
@@ -33,6 +34,7 @@ namespace WayPlot.Views
             colSms = new ColumnHeader();
             colEmailConsent = new ColumnHeader();
             searchTimer = new System.Windows.Forms.Timer(components);
+            actionToolTip = new ToolTip(components);
             card.SuspendLayout();
             layout.SuspendLayout();
             toolbar.SuspendLayout();
@@ -68,13 +70,15 @@ namespace WayPlot.Views
             // 
             toolbar.AutoSize = true;
             toolbar.AutoSizeMode = AutoSizeMode.GrowAndShrink;
-            toolbar.ColumnCount = 3;
+            toolbar.ColumnCount = 4;
             toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
             toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 300F));
             toolbar.ColumnStyles.Add(new ColumnStyle());
+            toolbar.ColumnStyles.Add(new ColumnStyle());
             toolbar.Controls.Add(lblTitle, 0, 0);
             toolbar.Controls.Add(txtSearch, 1, 0);
-            toolbar.Controls.Add(btnNew, 2, 0);
+            toolbar.Controls.Add(btnImport, 2, 0);
+            toolbar.Controls.Add(btnNew, 3, 0);
             toolbar.Dock = DockStyle.Fill;
             toolbar.Margin = new Padding(0);
             toolbar.Name = "toolbar";
@@ -99,14 +103,24 @@ namespace WayPlot.Views
             txtSearch.Margin = new Padding(0, 0, 12, 0);
             txtSearch.Name = "txtSearch";
             txtSearch.TabIndex = 1;
-            // 
+            //
+            // btnImport
+            //
+            btnImport.AutoSize = true;
+            btnImport.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            btnImport.Margin = new Padding(0, 0, 10, 0);
+            btnImport.Name = "btnImport";
+            btnImport.TabIndex = 2;
+            btnImport.Text = "Import CSV";
+            btnImport.UseVisualStyleBackColor = false;
+            //
             // btnNew
-            // 
+            //
             btnNew.AutoSize = true;
             btnNew.AutoSizeMode = AutoSizeMode.GrowAndShrink;
             btnNew.Margin = new Padding(0);
             btnNew.Name = "btnNew";
-            btnNew.TabIndex = 2;
+            btnNew.TabIndex = 3;
             btnNew.Text = "New contact";
             btnNew.UseVisualStyleBackColor = false;
             // 
@@ -174,6 +188,7 @@ namespace WayPlot.Views
         private TableLayoutPanel toolbar;
         private Label lblTitle;
         private TextBox txtSearch;
+        private Button btnImport;
         private Button btnNew;
         private Label lblSummary;
         private ListView listContacts;
@@ -185,5 +200,6 @@ namespace WayPlot.Views
         private ColumnHeader colSms;
         private ColumnHeader colEmailConsent;
         private System.Windows.Forms.Timer searchTimer;
+        private ToolTip actionToolTip;
     }
 }

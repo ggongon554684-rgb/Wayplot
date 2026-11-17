@@ -34,4 +34,18 @@ public static class PipelineRules
 
         return RuleResult.Success();
     }
+
+    public static RuleResult CanConfirmDeal(Lead lead)
+    {
+        if (lead.Stage is LeadStage.Closed or LeadStage.Lost)
+            return RuleResult.Fail("This lead is already finished.");
+
+        if (lead.Stage != LeadStage.Negotiation)
+            return RuleResult.Fail("Only a lead in Negotiation can be closed by confirming a deal.");
+
+        if (!lead.CloseRequested)
+            return RuleResult.Fail("The agent has not requested that this lead be closed.");
+
+        return RuleResult.Success();
+    }
 }

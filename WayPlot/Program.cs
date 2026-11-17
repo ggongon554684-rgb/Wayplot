@@ -6,6 +6,7 @@ using WayPlot.infrastructure;
 using WayPlot.Presenters;
 using WayPlot.Views;
 using WayPlot.domain.Services.DataCollection;
+using WayPlot.domain.Services.MainTransaction;
 
 namespace WayPlot;
 
@@ -40,19 +41,48 @@ internal static class Program
                     var view = new ParcelMapView();
                     view.Presenter = new ParcelMapPresenter(
                         view, sp.GetRequiredService<ParcelService>(), sp.GetRequiredService<LeadService>(),
-                        sp.GetRequiredService<ContactService>());
+                        sp.GetRequiredService<ContactService>(), sp.GetRequiredService<InteractionService>());
                     return view;
                 },
                 ["contacts"] = () =>
                 {
                     var view = new ContactsView();
-                    view.Presenter = new ContactsPresenter(view, sp.GetRequiredService<ContactService>());
+                    view.Presenter = new ContactsPresenter(
+                        view,
+                        sp.GetRequiredService<ContactService>(),
+                        sp.GetRequiredService<ContactImportService>(),
+                        sp.GetRequiredService<ICurrentUser>());
                     return view;
                 },
                 ["leads"] = () =>
                 {
                     var view = new LeadsView();
-                    view.Presenter = new LeadsPresenter(view, sp.GetRequiredService<LeadService>());
+                    view.Presenter = new LeadsPresenter(
+                        view, sp.GetRequiredService<LeadService>(), sp.GetRequiredService<InteractionService>());
+                    return view;
+                },
+                ["interactions"] = () =>
+                {
+                    var view = new InteractionsView();
+                    view.Presenter = new InteractionsPresenter(
+                        view, sp.GetRequiredService<InteractionService>(), sp.GetRequiredService<LeadService>());
+                    return view;
+                },
+                ["deals"] = () =>
+                {
+                    var view = new DealsView();
+                    view.Presenter = new DealsPresenter(
+                        view, sp.GetRequiredService<DealService>(), sp.GetRequiredService<ICurrentUser>());
+                    return view;
+                },
+                ["commissions"] = () =>
+                {
+                    var view = new CommissionsView();
+                    view.Presenter = new CommissionsPresenter(
+                        view,
+                        sp.GetRequiredService<CommissionService>(),
+                        sp.GetRequiredService<ICurrentUser>(),
+                        sp.GetRequiredService<ITenantFeatures>());
                     return view;
                 }
             };

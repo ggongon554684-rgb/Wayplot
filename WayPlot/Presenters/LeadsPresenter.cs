@@ -12,7 +12,7 @@ public interface ILeadsView
 }
 
 /// <summary>Loads the filtered lead list and delegates lead-file operations to LeadService.</summary>
-public sealed class LeadsPresenter(ILeadsView view, LeadService leads)
+public sealed class LeadsPresenter(ILeadsView view, LeadService leads, InteractionService interactions)
 {
     private int _latest;
 
@@ -66,6 +66,32 @@ public sealed class LeadsPresenter(ILeadsView view, LeadService leads)
         {
             return ServiceResult<LeadDto>.Fail(
                 "The stage could not be changed. Check the database connection and try again.");
+        }
+    }
+
+    public async Task<ServiceResult<IReadOnlyList<LeadListItem>>> SearchLeadsAsync(string? search)
+    {
+        try
+        {
+            return await leads.ListAsync(null, search);
+        }
+        catch (Exception)
+        {
+            return ServiceResult<IReadOnlyList<LeadListItem>>.Fail(
+                "Could not search leads. Check the database connection and try again.");
+        }
+    }
+
+    public async Task<ServiceResult<InteractionListItem>> LogInteractionAsync(LogInteractionRequest request)
+    {
+        try
+        {
+            return await interactions.LogAsync(request);
+        }
+        catch (Exception)
+        {
+            return ServiceResult<InteractionListItem>.Fail(
+                "The interaction could not be logged. Check the database connection and try again.");
         }
     }
 

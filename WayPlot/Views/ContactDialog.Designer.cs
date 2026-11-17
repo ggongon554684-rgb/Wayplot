@@ -28,6 +28,14 @@ namespace WayPlot.Views
             lblType = new Label();
             cboSource = new ComboBox();
             cboType = new ComboBox();
+            lblReferrerType = new Label();
+            cboReferrerType = new ComboBox();
+            lblReferrerChoice = new Label();
+            cboReferrerChoice = new ComboBox();
+            lblReferrerName = new Label();
+            txtReferrerName = new TextBox();
+            lblReferrerPhone = new Label();
+            txtReferrerPhone = new TextBox();
             chkSms = new CheckBox();
             chkEmail = new CheckBox();
             lblNote = new Label();
@@ -52,16 +60,32 @@ namespace WayPlot.Views
             layout.Controls.Add(lblEmail, 0, 4);
             layout.Controls.Add(txtEmail, 0, 5);
             layout.Controls.Add(pairLayout, 0, 6);
-            layout.Controls.Add(chkSms, 0, 7);
-            layout.Controls.Add(chkEmail, 0, 8);
-            layout.Controls.Add(lblNote, 0, 9);
-            layout.Controls.Add(txtNote, 0, 10);
-            layout.Controls.Add(lblError, 0, 11);
-            layout.Controls.Add(buttons, 0, 12);
+            layout.Controls.Add(lblReferrerType, 0, 7);
+            layout.Controls.Add(cboReferrerType, 0, 8);
+            layout.Controls.Add(lblReferrerChoice, 0, 9);
+            layout.Controls.Add(cboReferrerChoice, 0, 10);
+            layout.Controls.Add(lblReferrerName, 0, 11);
+            layout.Controls.Add(txtReferrerName, 0, 12);
+            layout.Controls.Add(lblReferrerPhone, 0, 13);
+            layout.Controls.Add(txtReferrerPhone, 0, 14);
+            layout.Controls.Add(chkSms, 0, 15);
+            layout.Controls.Add(chkEmail, 0, 16);
+            layout.Controls.Add(lblNote, 0, 17);
+            layout.Controls.Add(txtNote, 0, 18);
+            layout.Controls.Add(lblError, 0, 19);
+            layout.Controls.Add(buttons, 0, 20);
             layout.Dock = DockStyle.Fill;
             layout.Name = "layout";
             layout.Padding = new Padding(24);
-            layout.RowCount = 13;
+            layout.RowCount = 21;
+            layout.RowStyles.Add(new RowStyle());
+            layout.RowStyles.Add(new RowStyle());
+            layout.RowStyles.Add(new RowStyle());
+            layout.RowStyles.Add(new RowStyle());
+            layout.RowStyles.Add(new RowStyle());
+            layout.RowStyles.Add(new RowStyle());
+            layout.RowStyles.Add(new RowStyle());
+            layout.RowStyles.Add(new RowStyle());
             layout.RowStyles.Add(new RowStyle());
             layout.RowStyles.Add(new RowStyle());
             layout.RowStyles.Add(new RowStyle());
@@ -181,36 +205,107 @@ namespace WayPlot.Views
             cboType.Margin = new Padding(12, 0, 0, 4);
             cboType.Name = "cboType";
             cboType.TabIndex = 1;
-            // 
+            //
+            // lblReferrerType
+            //
+            lblReferrerType.Anchor = AnchorStyles.Left;
+            lblReferrerType.AutoSize = true;
+            lblReferrerType.Margin = new Padding(0, 0, 0, 4);
+            lblReferrerType.Name = "lblReferrerType";
+            lblReferrerType.Text = "Referred by (optional)";
+            lblReferrerType.UseMnemonic = false;
+            //
+            // cboReferrerType
+            //
+            cboReferrerType.Dock = DockStyle.Fill;
+            cboReferrerType.DropDownStyle = ComboBoxStyle.DropDownList;
+            cboReferrerType.FormattingEnabled = true;
+            cboReferrerType.Margin = new Padding(0, 0, 0, 8);
+            cboReferrerType.Name = "cboReferrerType";
+            //
+            // lblReferrerChoice
+            //
+            lblReferrerChoice.Anchor = AnchorStyles.Left;
+            lblReferrerChoice.AutoSize = true;
+            lblReferrerChoice.Margin = new Padding(0, 0, 0, 4);
+            lblReferrerChoice.Name = "lblReferrerChoice";
+            lblReferrerChoice.Text = "Choose referrer";
+            lblReferrerChoice.UseMnemonic = false;
+            lblReferrerChoice.Visible = false;
+            //
+            // cboReferrerChoice
+            //
+            cboReferrerChoice.Dock = DockStyle.Fill;
+            cboReferrerChoice.DropDownStyle = ComboBoxStyle.DropDownList;
+            cboReferrerChoice.FormattingEnabled = true;
+            cboReferrerChoice.Margin = new Padding(0, 0, 0, 8);
+            cboReferrerChoice.Name = "cboReferrerChoice";
+            cboReferrerChoice.Visible = false;
+            //
+            // lblReferrerName
+            //
+            lblReferrerName.Anchor = AnchorStyles.Left;
+            lblReferrerName.AutoSize = true;
+            lblReferrerName.Margin = new Padding(0, 0, 0, 4);
+            lblReferrerName.Name = "lblReferrerName";
+            lblReferrerName.Text = "Outside referrer's name";
+            lblReferrerName.UseMnemonic = false;
+            lblReferrerName.Visible = false;
+            //
+            // txtReferrerName
+            //
+            txtReferrerName.Dock = DockStyle.Fill;
+            txtReferrerName.Margin = new Padding(0, 0, 0, 8);
+            txtReferrerName.MaxLength = 150;
+            txtReferrerName.Name = "txtReferrerName";
+            txtReferrerName.Visible = false;
+            //
+            // lblReferrerPhone
+            //
+            lblReferrerPhone.Anchor = AnchorStyles.Left;
+            lblReferrerPhone.AutoSize = true;
+            lblReferrerPhone.Margin = new Padding(0, 0, 0, 4);
+            lblReferrerPhone.Name = "lblReferrerPhone";
+            lblReferrerPhone.Text = "Outside referrer's mobile number";
+            lblReferrerPhone.UseMnemonic = false;
+            lblReferrerPhone.Visible = false;
+            //
+            // txtReferrerPhone
+            //
+            txtReferrerPhone.Dock = DockStyle.Fill;
+            txtReferrerPhone.Margin = new Padding(0, 0, 0, 12);
+            txtReferrerPhone.Name = "txtReferrerPhone";
+            txtReferrerPhone.Visible = false;
+            //
             // chkSms
-            // 
+            //
             chkSms.AutoSize = true;
             chkSms.Margin = new Padding(0, 0, 0, 4);
             chkSms.Name = "chkSms";
             chkSms.TabIndex = 5;
             chkSms.Text = "OK to send SMS (needs a mobile number)";
             chkSms.UseVisualStyleBackColor = true;
-            // 
+            //
             // chkEmail
-            // 
+            //
             chkEmail.AutoSize = true;
             chkEmail.Margin = new Padding(0, 0, 0, 12);
             chkEmail.Name = "chkEmail";
             chkEmail.TabIndex = 6;
             chkEmail.Text = "OK to send email (needs an email address)";
             chkEmail.UseVisualStyleBackColor = true;
-            // 
+            //
             // lblNote
-            // 
+            //
             lblNote.Anchor = AnchorStyles.Left;
             lblNote.AutoSize = true;
             lblNote.Margin = new Padding(0, 0, 0, 4);
             lblNote.Name = "lblNote";
             lblNote.Text = "Note (kept only if this person already exists)";
             lblNote.UseMnemonic = false;
-            // 
+            //
             // txtNote
-            // 
+            //
             txtNote.Dock = DockStyle.Fill;
             txtNote.Margin = new Padding(0, 0, 0, 12);
             txtNote.MinimumSize = new Size(0, 72);
@@ -219,18 +314,18 @@ namespace WayPlot.Views
             txtNote.ScrollBars = ScrollBars.Vertical;
             txtNote.Size = new Size(392, 72);
             txtNote.TabIndex = 7;
-            // 
+            //
             // lblError
-            // 
+            //
             lblError.AutoSize = true;
             lblError.Margin = new Padding(0, 0, 0, 8);
             lblError.MaximumSize = new Size(392, 0);
             lblError.Name = "lblError";
             lblError.Visible = false;
             lblError.UseMnemonic = false;
-            // 
+            //
             // buttons
-            // 
+            //
             buttons.AutoSize = true;
             buttons.Controls.Add(btnSave);
             buttons.Controls.Add(btnCancel);
@@ -239,9 +334,9 @@ namespace WayPlot.Views
             buttons.Margin = new Padding(0);
             buttons.Name = "buttons";
             buttons.TabIndex = 8;
-            // 
+            //
             // btnSave
-            // 
+            //
             btnSave.AutoSize = true;
             btnSave.AutoSizeMode = AutoSizeMode.GrowAndShrink;
             btnSave.Margin = new Padding(8, 0, 0, 0);
@@ -267,7 +362,7 @@ namespace WayPlot.Views
             AutoScaleDimensions = new SizeF(96F, 96F);
             AutoScaleMode = AutoScaleMode.Dpi;
             CancelButton = btnCancel;
-            ClientSize = new Size(440, 640);
+            ClientSize = new Size(440, 760);
             Controls.Add(layout);
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
@@ -298,6 +393,14 @@ namespace WayPlot.Views
         private Label lblType;
         private ComboBox cboSource;
         private ComboBox cboType;
+        private Label lblReferrerType;
+        private ComboBox cboReferrerType;
+        private Label lblReferrerChoice;
+        private ComboBox cboReferrerChoice;
+        private Label lblReferrerName;
+        private TextBox txtReferrerName;
+        private Label lblReferrerPhone;
+        private TextBox txtReferrerPhone;
         private CheckBox chkSms;
         private CheckBox chkEmail;
         private Label lblNote;

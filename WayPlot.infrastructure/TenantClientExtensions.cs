@@ -5,6 +5,7 @@ using WayPlot.domain.Interfaces;
 using WayPlot.domain.Repositories;
 using WayPlot.domain.Services.Admin;
 using WayPlot.domain.Services.DataCollection;
+using WayPlot.domain.Services.MainTransaction;
 using WayPlot.infrastructure.Common;
 using WayPlot.infrastructure.Data.Seed;
 using WayPlot.infrastructure.Events;
@@ -34,8 +35,12 @@ public static class TenantClientExtensions
 
         // The services keep no state: each operation opens its own unit of work.
         services.AddSingleton<ContactService>();
+        services.AddSingleton<ContactImportService>();
         services.AddSingleton<ParcelService>();
         services.AddSingleton<LeadService>();
+        services.AddSingleton<InteractionService>();
+        services.AddSingleton<CommissionService>();
+        services.AddSingleton<DealService>();
         services.AddSingleton<TenantSeeder>();
         return services;
     }

@@ -181,3 +181,4 @@ C:\Users\gabny\source\repos\wayplot\WayPlot.api\obj\Debug\net10.0\WayPlot.api.pd
 C:\Users\gabny\source\repos\wayplot\WayPlot.api\obj\Debug\net10.0\WayPlot.api.genruntimeconfig.cache
 C:\Users\gabny\source\repos\wayplot\WayPlot.api\obj\Debug\net10.0\ref\WayPlot.api.dll
 C:\Users\gabny\source\repos\wayplot\WayPlot.api\obj\Debug\net10.0\compressed\24mb5ursrm-{0}-aboas9rpww-aboas9rpww.gz
+C:\Users\gabny\source\repos\wayplot\WayPlot.api\obj\Debug\net10.0\WayPlot.api.sourcelink.json

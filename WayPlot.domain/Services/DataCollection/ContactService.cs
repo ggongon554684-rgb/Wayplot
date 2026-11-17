@@ -18,30 +18,20 @@ public sealed class ContactService(
 {
     public async Task<CaptureResult> CaptureAsync(CaptureContactRequest request)
     {
-        var name = request.FullName?.Trim() ?? string.Empty;
-        if (name.Length == 0)
-            return CaptureResult.Fail("Enter the contact's full name.");
-        if (name.Length > 150)
-            return CaptureResult.Fail("The name is too long (150 characters at most).");
-
-        var phoneText = string.IsNullOrWhiteSpace(request.Phone) ? null : request.Phone.Trim();
-        var phone = PhoneNormalizer.Normalize(phoneText);
-        if (phoneText is not null && phone is null)
-            return CaptureResult.Fail("That is not a valid Philippine mobile number. Example: 0917 123 4567.");
-
-        if (!TryNormalizeEmail(request.Email, out var email))
-            return CaptureResult.Fail("That email address is not valid.");
-
-        if (phone is null && email is null)
-            return CaptureResult.Fail("Enter a phone number or an email address.");
-
-        // No consent means no SMS or email, so consent for a channel needs that channel's address.
-        if (request.ConsentSms && phone is null)
-            return CaptureResult.Fail("SMS consent needs a mobile number.");
-        if (request.ConsentEmail && email is null)
-            return CaptureResult.Fail("Email consent needs an email address.");
+        var error = ValidateRequest(request, out var name, out var phoneText, out var phone, out var email);
+        if (error is not null)
+            return CaptureResult.Fail(error);
 
         await using var uow = uowFactory.Create();
+
+        var referrerError = await ValidateReferrerAsync(uow, request);
+        if (referrerError is not null)
+            return CaptureResult.Fail(referrerError);
+
+        if (request.AssignedStaffId is { } assignedStaffId
+            && assignedStaffId != user.UserId
+            && !await uow.Staff.IsActiveAgentAsync(assignedStaffId))
+            return CaptureResult.Fail("The assigned agent was not found or is inactive.");
 
         var existing = await uow.Contacts.FindByPhoneOrEmailAsync(phone, email);
         if (existing is not null)
@@ -58,7 +48,12 @@ public sealed class ContactService(
             Type = request.Type,
             ConsentSms = request.ConsentSms,
             ConsentEmail = request.ConsentEmail,
-            ConsentAtUtc = request.ConsentSms || request.ConsentEmail ? now : null
+            ConsentAtUtc = request.ConsentSms || request.ConsentEmail ? now : null,
+            ReferrerContactId = request.ReferrerContactId,
+            ReferrerStaffId = request.ReferrerStaffId,
+            ReferrerName = Clean(request.ReferrerName),
+            ReferrerPhone = Clean(request.ReferrerPhone),
+            AssignedStaffId = request.AssignedStaffId
         };
 
         uow.Contacts.Add(contact);
@@ -67,6 +62,44 @@ public sealed class ContactService(
         return CaptureResult.Success(
             new CaptureContactResult(contact.Id, contact.FullName, MatchedExisting: false, InquiryRecorded: false),
             "Contact saved.");
+    }
+
+    internal static string? ValidateRequest(
+        CaptureContactRequest request,
+        out string name,
+        out string? phoneText,
+        out string? phone,
+        out string? email)
+    {
+        name = request.FullName?.Trim() ?? string.Empty;
+        phoneText = null;
+        phone = null;
+        email = null;
+
+        if (name.Length == 0)
+            return "Enter the contact's full name.";
+        if (name.Length > 150)
+            return "The name is too long (150 characters at most).";
+        if (!Enum.IsDefined(request.Source))
+            return "Choose a valid source.";
+        if (!Enum.IsDefined(request.Type))
+            return "Choose a valid contact type.";
+
+        phoneText = string.IsNullOrWhiteSpace(request.Phone) ? null : request.Phone.Trim();
+        phone = PhoneNormalizer.Normalize(phoneText);
+        if (phoneText is not null && phone is null)
+            return "That is not a valid Philippine mobile number. Example: 0917 123 4567.";
+
+        if (!TryNormalizeEmail(request.Email, out email))
+            return "That email address is not valid.";
+        if (phone is null && email is null)
+            return "Enter a phone number or an email address.";
+        if (request.ConsentSms && phone is null)
+            return "SMS consent needs a mobile number.";
+        if (request.ConsentEmail && email is null)
+            return "Email consent needs an email address.";
+
+        return null;
     }
     // Paste this method inside ContactService, right after CaptureAsync (before RecordInquiryOnExistingAsync).
 
@@ -84,44 +117,74 @@ public sealed class ContactService(
         return ServiceResult<IReadOnlyList<ContactListItem>>.Success(items, string.Empty);
     }
 
+    public async Task<ServiceResult<ContactReferralOptions>> ListReferralOptionsAsync()
+    {
+        await using var uow = uowFactory.Create();
+        var contacts = await uow.Contacts.ListReferralContactsAsync();
+        var staff = await uow.Staff.ListActiveReferralStaffAsync();
+        return ServiceResult<ContactReferralOptions>.Success(new ContactReferralOptions(
+            contacts.Select(contact => new ReferralChoice(
+                contact.Id,
+                string.IsNullOrWhiteSpace(contact.Phone)
+                    ? contact.FullName
+                    : $"{contact.FullName} — {contact.Phone}")).ToList(),
+            staff.Select(member => new ReferralChoice(
+                member.Id,
+                $"{member.FullName} ({member.Role})")).ToList()));
+    }
+
 
 
     private async Task<CaptureResult> RecordInquiryOnExistingAsync(
         ITenantUnitOfWork uow, Contact existing, CaptureContactRequest request)
     {
-        // An Interaction belongs to a Lead, so the inquiry goes on the contact's latest active lead.
-        var lead = await uow.Leads.GetLatestActiveForContactAsync(existing.Id);
-        if (lead is null)
-        {
-            return CaptureResult.Success(
-                new CaptureContactResult(existing.Id, existing.FullName, MatchedExisting: true, InquiryRecorded: false),
-                $"Matched existing contact {existing.FullName}. No duplicate was created. " +
-                "This contact has no lead yet, so the inquiry note was not stored.");
-        }
+        var referrerResult = ApplyReferrer(existing, request);
+        if (referrerResult is not null)
+            return CaptureResult.Fail(referrerResult);
 
         var now = clock.UtcNow;
         var channel = ChannelFor(request.Source);
         var note = string.IsNullOrWhiteSpace(request.InquiryNote)
             ? $"Inquiry received again (source: {request.Source})."
             : request.InquiryNote.Trim();
+        var parcelId = request.ParcelId;
+        if (parcelId is { } selectedParcelId && await uow.Parcels.GetAsync(selectedParcelId) is null)
+            parcelId = null;
 
-        uow.Interactions.Add(new Interaction
+        uow.DuplicateInquiries.Add(new DuplicateInquiry
         {
-            LeadId = lead.Id,
-            Type = InteractionType.Inquiry,
-            Channel = channel,
+            ContactId = existing.Id,
+            ParcelId = parcelId,
+            Source = request.Source,
             OccurredAtUtc = now,
-            Note = note,
-            LoggedByStaffId = user.UserId
+            RecordedByStaffId = user.UserId,
+            Details = note
         });
-        lead.LastActivityAtUtc = now;
+
+        var lead = await uow.Leads.GetLatestActiveForContactAsync(existing.Id);
+        if (lead is not null)
+        {
+            uow.Interactions.Add(new Interaction
+            {
+                LeadId = lead.Id,
+                Type = InteractionType.Inquiry,
+                Channel = channel,
+                OccurredAtUtc = now,
+                Note = note,
+                LoggedByStaffId = user.UserId
+            });
+            lead.LastActivityAtUtc = now;
+        }
 
         await uow.SaveAsync();
-        await events.DispatchAsync(new InteractionLogged(lead.Id, InteractionType.Inquiry, channel, now));
+        if (lead is not null)
+            await events.DispatchAsync(new InteractionLogged(lead.Id, InteractionType.Inquiry, channel, now));
 
         return CaptureResult.Success(
             new CaptureContactResult(existing.Id, existing.FullName, MatchedExisting: true, InquiryRecorded: true),
-            $"Matched existing contact {existing.FullName}. Inquiry added to history.");
+            lead is null
+                ? $"Matched existing contact {existing.FullName}. Inquiry added to contact history."
+                : $"Matched existing contact {existing.FullName}. Inquiry added to history.");
     }
 
     private static InteractionChannel ChannelFor(LeadSource source) => source switch
@@ -131,8 +194,74 @@ public sealed class ContactService(
         _ => InteractionChannel.Note
     };
 
+    private async Task<string?> ValidateReferrerAsync(ITenantUnitOfWork uow, CaptureContactRequest request)
+    {
+        var fieldError = ValidateReferrerFields(request);
+        if (fieldError is not null)
+            return fieldError;
+
+        if (request.ReferrerContactId is { } contactId && await uow.Contacts.GetAsync(contactId) is null)
+            return "The selected referrer contact was not found.";
+        if (request.ReferrerStaffId is { } staffId && !await uow.Staff.IsActiveReferralStaffAsync(staffId))
+            return "The selected referrer staff member was not found or is inactive.";
+
+        return null;
+    }
+
+    private static string? ValidateReferrerFields(CaptureContactRequest request)
+    {
+        var hasContact = request.ReferrerContactId is not null;
+        var hasStaff = request.ReferrerStaffId is not null;
+        var hasOther = !string.IsNullOrWhiteSpace(request.ReferrerName)
+            || !string.IsNullOrWhiteSpace(request.ReferrerPhone);
+
+        if ((hasContact ? 1 : 0) + (hasStaff ? 1 : 0) + (hasOther ? 1 : 0) > 1)
+            return "Choose one referrer: an existing contact, a staff member, or another person.";
+
+        if (request.ReferrerName?.Trim().Length > 150)
+            return "The referrer's name is too long (150 characters at most).";
+        if (!hasOther)
+            return null;
+        if (string.IsNullOrWhiteSpace(request.ReferrerName) || string.IsNullOrWhiteSpace(request.ReferrerPhone))
+            return "Enter both the outside referrer's name and mobile number.";
+        if (PhoneNormalizer.Normalize(request.ReferrerPhone) is null)
+            return "The referrer's mobile number is invalid. Example: 0917 123 4567.";
+
+        return null;
+    }
+
+    private static string? ApplyReferrer(Contact contact, CaptureContactRequest request)
+    {
+        if (request.ReferrerContactId == contact.Id)
+            return "A contact cannot refer themselves.";
+
+        if (request.ReferrerContactId is null && request.ReferrerStaffId is null
+            && string.IsNullOrWhiteSpace(request.ReferrerName) && string.IsNullOrWhiteSpace(request.ReferrerPhone))
+            return null;
+
+        var hasExisting = contact.ReferrerContactId is not null || contact.ReferrerStaffId is not null
+            || !string.IsNullOrWhiteSpace(contact.ReferrerName) || !string.IsNullOrWhiteSpace(contact.ReferrerPhone);
+        if (hasExisting)
+        {
+            var same = contact.ReferrerContactId == request.ReferrerContactId
+                && contact.ReferrerStaffId == request.ReferrerStaffId
+                && string.Equals(contact.ReferrerName, Clean(request.ReferrerName), StringComparison.Ordinal)
+                && string.Equals(contact.ReferrerPhone, Clean(request.ReferrerPhone), StringComparison.Ordinal);
+            return same ? null : "This contact already has a different referrer recorded.";
+        }
+
+        contact.ReferrerContactId = request.ReferrerContactId;
+        contact.ReferrerStaffId = request.ReferrerStaffId;
+        contact.ReferrerName = Clean(request.ReferrerName);
+        contact.ReferrerPhone = Clean(request.ReferrerPhone);
+        return null;
+    }
+
+    private static string? Clean(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
     /// <summary>Blank is fine (returns true, email null). Otherwise it must be a plain address like name@host.com.</summary>
-    private static bool TryNormalizeEmail(string? input, out string? email)
+    internal static bool TryNormalizeEmail(string? input, out string? email)
     {
         email = null;
         var text = input?.Trim();

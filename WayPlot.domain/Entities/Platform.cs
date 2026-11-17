@@ -12,6 +12,11 @@ public class Staff : BaseEntity
     public bool IsActive { get; set; } = true;
 }
 
+public class Branch : BaseEntity
+{
+    public string Name { get; set; } = string.Empty;
+}
+
 /// <summary>Per-tenant rules as key/value: scoring points, reminder periods, commission rules. Tier B adds rows, not columns.</summary>
 public class Setting : BaseEntity
 {

@@ -20,6 +20,7 @@ public partial class LeadFileDialog : Form
             cboStage.Items.Add(EnumText.Pretty(stage));
 
         btnMoveStage.Click += async (_, _) => await MoveStageAsync();
+        btnLogInteraction.Click += async (_, _) => await LogInteractionAsync();
         btnClose.Click += (_, _) => Close();
         ShowFile(_file);
     }
@@ -31,6 +32,14 @@ public partial class LeadFileDialog : Form
     [Browsable(false)]
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public Func<Guid, Task<ServiceResult<LeadFileDto>>>? LoadHandler { get; set; }
+
+    [Browsable(false)]
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public Func<string?, Task<ServiceResult<IReadOnlyList<LeadListItem>>>>? LeadSearchHandler { get; set; }
+
+    [Browsable(false)]
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public Func<LogInteractionRequest, Task<ServiceResult<InteractionListItem>>>? InteractionSaveHandler { get; set; }
 
     private void ApplyTheme()
     {
@@ -56,6 +65,7 @@ public partial class LeadFileDialog : Form
         listInteractions.BackColor = Theme.Surface;
         listInteractions.ForeColor = Theme.Text;
         ButtonStyle.Apply(btnMoveStage, primary: true);
+        ButtonStyle.Apply(btnLogInteraction, primary: false);
         ButtonStyle.Apply(btnClose, primary: false);
     }
 
@@ -93,6 +103,38 @@ public partial class LeadFileDialog : Form
         {
             if (!IsDisposed) btnMoveStage.Enabled = true;
         }
+    }
+
+    private async Task LogInteractionAsync()
+    {
+        if (LeadSearchHandler is null || InteractionSaveHandler is null || LoadHandler is null)
+        {
+            ShowStatus("Interaction logging is unavailable.", true);
+            return;
+        }
+
+        using var dialog = new LogInteractionDialog
+        {
+            InitialLeadId = _file.Id,
+            InitialLeadText = $"{_file.ContactName} — {_file.ParcelLabel}",
+            LeadLocked = true,
+            LeadSearchHandler = LeadSearchHandler,
+            SaveHandler = InteractionSaveHandler
+        };
+        if (dialog.ShowDialog(this) != DialogResult.OK || dialog.Result is not { } saved)
+            return;
+
+        var refreshed = await LoadHandler(_file.Id);
+        if (IsDisposed) return;
+        if (!refreshed.Ok || refreshed.Value is null)
+        {
+            ShowStatus(refreshed.Message, true);
+            return;
+        }
+
+        _file = refreshed.Value;
+        ShowFile(_file);
+        ShowStatus(saved.Message, false);
     }
 
     private void ShowFile(LeadFileDto file)

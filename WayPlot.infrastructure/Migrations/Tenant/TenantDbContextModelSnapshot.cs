@@ -22,6 +22,57 @@ namespace WayPlot.infrastructure.Migrations.Tenant
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("WayPlot.domain.Entities.Branch", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("BranchId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
+
+                    b.Property<string>("SyncStatus")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedBy")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique()
+                        .HasFilter("[IsDeleted] = 0");
+
+                    b.ToTable("Branches");
+                });
+
             modelBuilder.Entity("WayPlot.domain.Entities.Commission", b =>
                 {
                     b.Property<Guid>("Id")
@@ -88,6 +139,8 @@ namespace WayPlot.infrastructure.Migrations.Tenant
                     b.HasKey("Id");
 
                     b.HasIndex("DealId");
+
+                    b.HasIndex("RecipientStaffId");
 
                     b.ToTable("Commissions");
                 });
@@ -181,12 +234,16 @@ namespace WayPlot.infrastructure.Migrations.Tenant
 
                     b.HasKey("Id");
 
+                    b.HasIndex("AssignedStaffId");
+
                     b.HasIndex("Email");
 
                     b.HasIndex("PhoneNormalized")
                         .IsUnique()
                         .HasDatabaseName("UX_Contact_Phone")
                         .HasFilter("[PhoneNormalized] IS NOT NULL AND [IsDeleted] = 0");
+
+                    b.HasIndex("ReferrerStaffId");
 
                     b.ToTable("Contacts");
                 });
@@ -289,14 +346,18 @@ namespace WayPlot.infrastructure.Migrations.Tenant
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ContactId");
+                    b.HasIndex("AgentStaffId");
 
-                    b.HasIndex("LeadId");
+                    b.HasIndex("ConfirmedByStaffId");
+
+                    b.HasIndex("ContactId");
 
                     b.HasIndex("ParcelId")
                         .IsUnique()
                         .HasDatabaseName("UX_Deal_OneActivePerParcel")
-                        .HasFilter("[IsActive] = 1");
+                        .HasFilter("[IsActive] = 1 AND [IsDeleted] = 0");
+
+                    b.HasIndex("LeadId", "ContactId", "ParcelId");
 
                     b.ToTable("Deals");
                 });
@@ -366,7 +427,78 @@ namespace WayPlot.infrastructure.Migrations.Tenant
 
                     b.HasIndex("ParcelId");
 
+                    b.HasIndex("UploadedByStaffId");
+
                     b.ToTable("Documents");
+                });
+
+            modelBuilder.Entity("WayPlot.domain.Entities.DuplicateInquiry", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("BranchId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ContactId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("Details")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime>("OccurredAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("ParcelId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("RecordedByStaffId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<string>("SyncStatus")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedBy")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ParcelId");
+
+                    b.HasIndex("RecordedByStaffId");
+
+                    b.HasIndex("ContactId", "OccurredAtUtc");
+
+                    b.ToTable("DuplicateInquiries");
                 });
 
             modelBuilder.Entity("WayPlot.domain.Entities.Interaction", b =>
@@ -442,6 +574,8 @@ namespace WayPlot.infrastructure.Migrations.Tenant
                     b.HasKey("Id");
 
                     b.HasIndex("LeadId");
+
+                    b.HasIndex("LoggedByStaffId");
 
                     b.ToTable("Interactions");
                 });
@@ -578,12 +712,15 @@ namespace WayPlot.infrastructure.Migrations.Tenant
 
                     b.HasKey("Id");
 
+                    b.HasIndex("AssignedStaffId");
+
                     b.HasIndex("ContactId");
 
-                    b.HasIndex("ParcelId")
+                    b.HasIndex("ParcelId");
+
+                    b.HasIndex("Id", "ContactId", "ParcelId")
                         .IsUnique()
-                        .HasDatabaseName("UX_Lead_OneNegotiationPerParcel")
-                        .HasFilter("[Stage] = 'Negotiation' AND [IsDeleted] = 0");
+                        .HasDatabaseName("UX_Lead_Id_ContactId_ParcelId");
 
                     b.ToTable("Leads");
                 });
@@ -782,6 +919,8 @@ namespace WayPlot.infrastructure.Migrations.Tenant
 
                     b.HasKey("Id");
 
+                    b.HasIndex("AssignedStaffId");
+
                     b.HasIndex("Label")
                         .IsUnique()
                         .HasDatabaseName("UX_Parcel_Label")
@@ -923,12 +1062,16 @@ namespace WayPlot.infrastructure.Migrations.Tenant
 
                     b.HasKey("Id");
 
+                    b.HasIndex("ConfirmedByStaffId");
+
                     b.HasIndex("DealId");
 
                     b.HasIndex("ReceiptNo")
                         .IsUnique()
                         .HasDatabaseName("UX_Payment_Receipt")
                         .HasFilter("[IsDeleted] = 0");
+
+                    b.HasIndex("RecordedByStaffId");
 
                     b.ToTable("Payments");
                 });
@@ -998,6 +1141,8 @@ namespace WayPlot.infrastructure.Migrations.Tenant
                     b.HasKey("Id");
 
                     b.HasIndex("DealId");
+
+                    b.HasIndex("ReferrerStaffId");
 
                     b.ToTable("ReferralBonuses");
                 });
@@ -1114,6 +1259,8 @@ namespace WayPlot.infrastructure.Migrations.Tenant
 
                     b.HasKey("Id");
 
+                    b.HasIndex("BranchId");
+
                     b.HasIndex("UserId")
                         .IsUnique();
 
@@ -1180,6 +1327,8 @@ namespace WayPlot.infrastructure.Migrations.Tenant
 
                     b.HasKey("Id");
 
+                    b.HasIndex("ChangedByStaffId");
+
                     b.HasIndex("LeadId");
 
                     b.ToTable("StageHistories");
@@ -1193,26 +1342,56 @@ namespace WayPlot.infrastructure.Migrations.Tenant
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("WayPlot.domain.Entities.Staff", null)
+                        .WithMany()
+                        .HasForeignKey("RecipientStaffId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.Navigation("Deal");
+                });
+
+            modelBuilder.Entity("WayPlot.domain.Entities.Contact", b =>
+                {
+                    b.HasOne("WayPlot.domain.Entities.Staff", null)
+                        .WithMany()
+                        .HasForeignKey("AssignedStaffId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("WayPlot.domain.Entities.Staff", null)
+                        .WithMany()
+                        .HasForeignKey("ReferrerStaffId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("WayPlot.domain.Entities.Deal", b =>
                 {
+                    b.HasOne("WayPlot.domain.Entities.Staff", null)
+                        .WithMany()
+                        .HasForeignKey("AgentStaffId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("WayPlot.domain.Entities.Staff", null)
+                        .WithMany()
+                        .HasForeignKey("ConfirmedByStaffId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("WayPlot.domain.Entities.Contact", "Contact")
                         .WithMany()
                         .HasForeignKey("ContactId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("WayPlot.domain.Entities.Lead", "Lead")
-                        .WithMany()
-                        .HasForeignKey("LeadId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
                     b.HasOne("WayPlot.domain.Entities.Parcel", "Parcel")
                         .WithMany()
                         .HasForeignKey("ParcelId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("WayPlot.domain.Entities.Lead", "Lead")
+                        .WithMany()
+                        .HasForeignKey("LeadId", "ContactId", "ParcelId")
+                        .HasPrincipalKey("Id", "ContactId", "ParcelId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
@@ -1235,7 +1414,35 @@ namespace WayPlot.infrastructure.Migrations.Tenant
                         .HasForeignKey("ParcelId")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.HasOne("WayPlot.domain.Entities.Staff", null)
+                        .WithMany()
+                        .HasForeignKey("UploadedByStaffId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.Navigation("Deal");
+
+                    b.Navigation("Parcel");
+                });
+
+            modelBuilder.Entity("WayPlot.domain.Entities.DuplicateInquiry", b =>
+                {
+                    b.HasOne("WayPlot.domain.Entities.Contact", "Contact")
+                        .WithMany()
+                        .HasForeignKey("ContactId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("WayPlot.domain.Entities.Parcel", "Parcel")
+                        .WithMany()
+                        .HasForeignKey("ParcelId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("WayPlot.domain.Entities.Staff", null)
+                        .WithMany()
+                        .HasForeignKey("RecordedByStaffId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Contact");
 
                     b.Navigation("Parcel");
                 });
@@ -1247,6 +1454,11 @@ namespace WayPlot.infrastructure.Migrations.Tenant
                         .HasForeignKey("LeadId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("WayPlot.domain.Entities.Staff", null)
+                        .WithMany()
+                        .HasForeignKey("LoggedByStaffId")
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("Lead");
                 });
@@ -1272,6 +1484,11 @@ namespace WayPlot.infrastructure.Migrations.Tenant
 
             modelBuilder.Entity("WayPlot.domain.Entities.Lead", b =>
                 {
+                    b.HasOne("WayPlot.domain.Entities.Staff", null)
+                        .WithMany()
+                        .HasForeignKey("AssignedStaffId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("WayPlot.domain.Entities.Contact", "Contact")
                         .WithMany()
                         .HasForeignKey("ContactId")
@@ -1291,6 +1508,11 @@ namespace WayPlot.infrastructure.Migrations.Tenant
 
             modelBuilder.Entity("WayPlot.domain.Entities.Parcel", b =>
                 {
+                    b.HasOne("WayPlot.domain.Entities.Staff", null)
+                        .WithMany()
+                        .HasForeignKey("AssignedStaffId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("WayPlot.domain.Entities.Owner", "Owner")
                         .WithMany()
                         .HasForeignKey("OwnerId")
@@ -1313,11 +1535,21 @@ namespace WayPlot.infrastructure.Migrations.Tenant
 
             modelBuilder.Entity("WayPlot.domain.Entities.Payment", b =>
                 {
+                    b.HasOne("WayPlot.domain.Entities.Staff", null)
+                        .WithMany()
+                        .HasForeignKey("ConfirmedByStaffId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("WayPlot.domain.Entities.Deal", "Deal")
                         .WithMany("Payments")
                         .HasForeignKey("DealId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("WayPlot.domain.Entities.Staff", null)
+                        .WithMany()
+                        .HasForeignKey("RecordedByStaffId")
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("Deal");
                 });
@@ -1330,11 +1562,29 @@ namespace WayPlot.infrastructure.Migrations.Tenant
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("WayPlot.domain.Entities.Staff", null)
+                        .WithMany()
+                        .HasForeignKey("ReferrerStaffId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.Navigation("Deal");
+                });
+
+            modelBuilder.Entity("WayPlot.domain.Entities.Staff", b =>
+                {
+                    b.HasOne("WayPlot.domain.Entities.Branch", null)
+                        .WithMany()
+                        .HasForeignKey("BranchId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("WayPlot.domain.Entities.StageHistory", b =>
                 {
+                    b.HasOne("WayPlot.domain.Entities.Staff", null)
+                        .WithMany()
+                        .HasForeignKey("ChangedByStaffId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("WayPlot.domain.Entities.Lead", "Lead")
                         .WithMany()
                         .HasForeignKey("LeadId")

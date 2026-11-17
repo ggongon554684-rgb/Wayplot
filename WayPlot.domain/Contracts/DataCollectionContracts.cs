@@ -11,11 +11,58 @@ public sealed record CaptureContactRequest(
     ContactType Type,
     bool ConsentSms,
     bool ConsentEmail,
-    string? InquiryNote = null);
+    string? InquiryNote = null,
+    Guid? ParcelId = null,
+    Guid? AssignedStaffId = null,
+    Guid? ReferrerContactId = null,
+    Guid? ReferrerStaffId = null,
+    string? ReferrerName = null,
+    string? ReferrerPhone = null);
 
 /// <summary>MatchedExisting: a contact with the same phone or email already existed, so no duplicate was created.
 /// InquiryRecorded: the inquiry was written to that contact's history.</summary>
 public sealed record CaptureContactResult(Guid ContactId, string FullName, bool MatchedExisting, bool InquiryRecorded);
+
+public sealed record ImportCsvColumn(int Index, string Header);
+
+public sealed record ContactImportMapping(
+    int NameColumn,
+    int? PhoneColumn,
+    int? EmailColumn,
+    int SourceColumn,
+    int? ConsentColumn,
+    int? ParcelColumn,
+    int? AssignedAgentColumn);
+
+public enum ContactImportRowStatus { Valid, Duplicate, Invalid }
+
+public sealed record ContactImportRow(
+    int RowNumber,
+    ContactImportRowStatus Status,
+    string Name,
+    string? Phone,
+    string? Email,
+    string Source,
+    string? Parcel,
+    string? Reason,
+    int? DuplicateOfRow,
+    bool WillCreateLead,
+    bool LeadCreated,
+    string? Warning,
+    IReadOnlyList<string> Fields);
+
+public sealed record ContactImportPreview(
+    IReadOnlyList<ImportCsvColumn> Columns,
+    IReadOnlyList<ContactImportRow> Rows);
+
+public sealed record ContactImportSummary(
+    int ContactsCreated,
+    int LeadsCreated,
+    int Duplicates,
+    int Rejected,
+    int Warnings,
+    IReadOnlyList<ImportCsvColumn> Columns,
+    IReadOnlyList<ContactImportRow> Rows);
 
 // ---- Owners and parcels ----
 public sealed record CreateOwnerRequest(string Name, string? Phone, string? Email, bool ListingAgreementOnFile);
@@ -62,7 +109,7 @@ public sealed record ParcelDto(
     string OwnerName);
 
 // ---- Leads ----
-public sealed record AttachLeadRequest(Guid ContactId, Guid ParcelId);
+public sealed record AttachLeadRequest(Guid ContactId, Guid ParcelId, Guid? AssignedStaffId = null);
 
 public sealed record MoveStageRequest(
     Guid LeadId,
@@ -118,3 +165,36 @@ public sealed record LeadInteractionRow(
     InteractionChannel Channel,
     DateTime OccurredAtUtc,
     string Note);
+
+public sealed record LogInteractionRequest(
+    Guid LeadId,
+    string Kind,
+    InteractionChannel Channel,
+    DateTime OccurredAtUtc,
+    string Note,
+    int? Rating);
+
+public sealed record InteractionListItem(
+    Guid Id,
+    Guid LeadId,
+    DateTime OccurredAtUtc,
+    string ContactName,
+    string ParcelLabel,
+    InteractionType Type,
+    InteractionChannel Channel,
+    string Note,
+    int? Rating,
+    ComplaintStatus? ComplaintStatus);
+
+public static class InteractionLogKinds
+{
+    public const string Call = "Call";
+    public const string Text = "Text";
+    public const string Viewing = "Viewing";
+    public const string Note = "Note";
+    public const string Complaint = "Complaint";
+    public const string Feedback = "Feedback";
+
+    public static IReadOnlyList<string> All { get; } =
+        [Call, Text, Viewing, Note, Complaint, Feedback];
+}

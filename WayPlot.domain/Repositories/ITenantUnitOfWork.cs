@@ -6,9 +6,16 @@ public interface ITenantUnitOfWork : IAsyncDisposable
     IOwnerRepository Owners { get; }
     IParcelRepository Parcels { get; }
     IContactRepository Contacts { get; }
+    IStaffRepository Staff { get; }
+    ISettingRepository Settings { get; }
     ILeadRepository Leads { get; }
     IInteractionRepository Interactions { get; }
     IStageHistoryRepository StageHistories { get; }
+    IDuplicateInquiryRepository DuplicateInquiries { get; }
+    IDealRepository Deals { get; }
+    IPaymentRepository Payments { get; }
+    ICommissionRepository Commissions { get; }
+    IReferralBonusRepository ReferralBonuses { get; }
 
     /// <summary>Saves everything changed in this unit of work. Returns the number of rows written.</summary>
     Task<int> SaveAsync();

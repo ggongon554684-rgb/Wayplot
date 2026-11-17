@@ -214,7 +214,9 @@ public partial class ParcelMapView : UserControl, IParcelMapView
         using var dialog = new LeadFileDialog(result.Value)
         {
             MoveHandler = _presenter.MoveStageAsync,
-            LoadHandler = _presenter.GetLeadFileAsync
+            LoadHandler = _presenter.GetLeadFileAsync,
+            LeadSearchHandler = _presenter.SearchLeadsAsync,
+            InteractionSaveHandler = _presenter.LogInteractionAsync
         };
         dialog.ShowDialog(FindForm());
     }

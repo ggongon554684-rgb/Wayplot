@@ -26,11 +26,56 @@ public interface IParcelRepository
 public interface IContactRepository
 {
     Task<Contact?> GetAsync(Guid id);
+    /// <summary>Contacts available as referrers, ordered by name, without tracking.</summary>
+    Task<IReadOnlyList<Contact>> ListReferralContactsAsync();
     /// <summary>First contact whose PhoneNormalized equals the phone OR whose Email equals the email. Null arguments are ignored.</summary>
     Task<Contact?> FindByPhoneOrEmailAsync(string? phoneNormalized, string? email);
+    /// <summary>Contacts matching any normalized phone or email in the supplied batch, without tracking.</summary>
+    Task<IReadOnlyList<Contact>> FindMatchesAsync(IReadOnlyCollection<string> phoneNumbers, IReadOnlyCollection<string> emails);
     /// <summary>Contacts ordered by name. Matches the text against name, email and (for 3+ digits) phone. Blank returns everyone.</summary>
     Task<IReadOnlyList<Contact>> SearchAsync(string? text);
     void Add(Contact contact);
+}
+
+public interface IStaffRepository
+{
+    /// <summary>Active Agent staff, without tracking.</summary>
+    Task<IReadOnlyList<Staff>> ListActiveAgentsAsync();
+    Task<bool> IsActiveAgentAsync(Guid staffId);
+    Task<IReadOnlyList<Staff>> ListActiveReferralStaffAsync();
+    Task<IReadOnlyList<Staff>> ListActiveBranchManagersAsync(Guid branchId);
+    Task<IReadOnlyList<Staff>> ListByIdsAsync(IReadOnlyCollection<Guid> staffIds);
+    Task<bool> IsActiveReferralStaffAsync(Guid staffId);
+}
+
+public interface ISettingRepository
+{
+    Task<Setting?> GetForDisplayAsync(string key);
+    Task<Setting?> GetByKeyAsync(string key);
+    void Add(Setting setting);
+}
+
+public interface ICommissionRepository
+{
+    Task<Commission?> GetAsync(Guid id);
+    Task<IReadOnlyList<Commission>> ListAsync(Guid? recipientStaffId, Guid? branchId, bool includeCompanyShares);
+    Task<IReadOnlyList<Commission>> ListByDealAsync(Guid dealId);
+    Task<bool> ExistsForDealAsync(Guid dealId);
+    void Add(Commission commission);
+}
+
+public interface IReferralBonusRepository
+{
+    Task<ReferralBonus?> GetAsync(Guid id);
+    Task<IReadOnlyList<ReferralBonus>> ListAsync(Guid? referrerStaffId, Guid? branchId);
+    Task<IReadOnlyList<ReferralBonus>> ListByDealAsync(Guid dealId);
+    Task<bool> ExistsForDealAsync(Guid dealId);
+    void Add(ReferralBonus bonus);
+}
+
+public interface IDuplicateInquiryRepository
+{
+    void Add(DuplicateInquiry inquiry);
 }
 
 public interface ILeadRepository
@@ -40,7 +85,7 @@ public interface ILeadRepository
     /// <summary>The lead with Contact and Parcel loaded for display, without tracking.</summary>
     Task<Lead?> GetForDisplayAsync(Guid id);
     /// <summary>Leads matching the optional stage and contact/parcel search, newest activity first.</summary>
-    Task<IReadOnlyList<Lead>> ListAsync(LeadStage? stage, string? search);
+    Task<IReadOnlyList<Lead>> ListAsync(LeadStage? stage, string? search, Guid? assignedStaffId = null);
     /// <summary>Leads on the parcel with Contact and Parcel loaded, newest activity first.</summary>
     Task<IReadOnlyList<Lead>> ListByParcelAsync(Guid parcelId);
     /// <summary>The contact's most recent lead that is not Lost, or null.</summary>
@@ -54,6 +99,8 @@ public interface ILeadRepository
 
 public interface IInteractionRepository
 {
+    /// <summary>Interactions with lead, contact and parcel loaded, newest first, without tracking.</summary>
+    Task<IReadOnlyList<Interaction>> ListAsync(Guid? leadId, InteractionType? type);
     /// <summary>Interactions for one lead, newest first, without tracking.</summary>
     Task<IReadOnlyList<Interaction>> ListByLeadAsync(Guid leadId);
     void Add(Interaction interaction);
@@ -64,4 +111,28 @@ public interface IStageHistoryRepository
     /// <summary>Stage changes for one lead, oldest first, without tracking.</summary>
     Task<IReadOnlyList<StageHistory>> ListByLeadAsync(Guid leadId);
     void Add(StageHistory history);
+}
+
+public interface IDealRepository
+{
+    /// <summary>The tracked deal with its lead, contact, parcel and payments loaded.</summary>
+    Task<Deal?> GetAsync(Guid id);
+    /// <summary>Deals for the deal-management screen, without tracking.</summary>
+    Task<IReadOnlyList<Deal>> ListAsync(Guid? agentStaffId, Guid? branchId);
+    /// <summary>Confirmed FullyPaid deals without any commission rows, for idempotent backfill.</summary>
+    Task<IReadOnlyList<Deal>> ListFullyPaidMissingCommissionAsync();
+    /// <summary>True when a deal already holds the parcel.</summary>
+    Task<bool> ActiveForParcelExistsAsync(Guid parcelId);
+    void Add(Deal deal);
+}
+
+public interface IPaymentRepository
+{
+    /// <summary>The tracked payment with its deal, parcel and deal payments loaded.</summary>
+    Task<Payment?> GetAsync(Guid id);
+    /// <summary>Payments for one deal, newest first, without tracking.</summary>
+    Task<IReadOnlyList<Payment>> ListByDealAsync(Guid dealId);
+    /// <summary>Largest numeric receipt suffix for a prefix, or zero when none exists.</summary>
+    Task<int> MaxReceiptSequenceAsync(string prefix);
+    void Add(Payment payment);
 }

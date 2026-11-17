@@ -1,5 +1,6 @@
 ﻿using WayPlot.domain.Common;
 using WayPlot.domain.Contracts;
+using WayPlot.domain.Interfaces;
 using WayPlot.domain.Services.DataCollection;
 
 namespace WayPlot.Presenters;
@@ -8,12 +9,20 @@ public interface IContactsView
 {
     void ShowContacts(IReadOnlyList<ContactListItem> contacts);
     void ShowStatus(string text, bool isError);
+    bool IsDisposed { get; }
 }
 
 /// <summary>Loads and searches the contact list and saves new contacts. All rules stay in ContactService.</summary>
-public sealed class ContactsPresenter(IContactsView view, ContactService contacts)
+public sealed class ContactsPresenter(
+    IContactsView view,
+    ContactService contacts,
+    ContactImportService imports,
+    ICurrentUser user)
 {
     private int _latest;
+
+    public bool CanImport => user.Role is Roles.Agent or Roles.TenantAdmin;
+    public bool CanAssignImportedContacts => user.Role == Roles.TenantAdmin;
 
     /// <summary>notice replaces the usual "N contacts" line (used to show the result of a save).</summary>
     public async Task LoadAsync(string? search = null, string? notice = null)
@@ -21,8 +30,9 @@ public sealed class ContactsPresenter(IContactsView view, ContactService contact
         var ticket = ++_latest;
         try
         {
+            if (view.IsDisposed) return;
             var result = await contacts.ListAsync(search);
-            if (ticket != _latest) return;   // a newer search is running; ignore this older answer
+            if (ticket != _latest || view.IsDisposed) return;   // a newer search is running; ignore this older answer
 
             if (!result.Ok || result.Value is null)
             {
@@ -35,7 +45,7 @@ public sealed class ContactsPresenter(IContactsView view, ContactService contact
         }
         catch (Exception)
         {
-            if (ticket == _latest)
+            if (ticket == _latest && !view.IsDisposed)
                 view.ShowStatus("Could not load contacts. Check the database connection and try again.", true);
         }
     }
@@ -50,6 +60,59 @@ public sealed class ContactsPresenter(IContactsView view, ContactService contact
         {
             // For example two people saving the same phone at once: the database refuses the second one.
             return ServiceResult<CaptureContactResult>.Fail("The contact could not be saved. Nothing was changed. Try again.");
+        }
+    }
+
+    public async Task<ServiceResult<ContactReferralOptions>> GetReferralOptionsAsync()
+    {
+        try
+        {
+            return await contacts.ListReferralOptionsAsync();
+        }
+        catch (Exception)
+        {
+            return ServiceResult<ContactReferralOptions>.Fail(
+                "Could not load referrer choices. Check the database connection and try again.");
+        }
+    }
+
+    public ServiceResult<IReadOnlyList<ImportCsvColumn>> ReadImportColumns(string csvContent)
+    {
+        try
+        {
+            return imports.ReadColumns(csvContent);
+        }
+        catch (Exception)
+        {
+            return ServiceResult<IReadOnlyList<ImportCsvColumn>>.Fail("Could not read the CSV file.");
+        }
+    }
+
+    public async Task<ServiceResult<ContactImportPreview>> PreviewImportAsync(
+        string csvContent,
+        ContactImportMapping mapping)
+    {
+        try
+        {
+            return await imports.PreviewAsync(csvContent, mapping);
+        }
+        catch (Exception)
+        {
+            return ServiceResult<ContactImportPreview>.Fail("Could not preview the import. Check the database connection and try again.");
+        }
+    }
+
+    public async Task<ServiceResult<ContactImportSummary>> ImportCsvAsync(
+        string csvContent,
+        ContactImportMapping mapping)
+    {
+        try
+        {
+            return await imports.ImportAsync(csvContent, mapping);
+        }
+        catch (Exception)
+        {
+            return ServiceResult<ContactImportSummary>.Fail("The import could not be completed. Check the database connection and try again.");
         }
     }
 

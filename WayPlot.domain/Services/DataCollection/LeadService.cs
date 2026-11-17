@@ -29,6 +29,11 @@ public sealed class LeadService(
         if (parcel is null)
             return LeadResult.Fail("That parcel was not found.");
 
+        if (request.AssignedStaffId is { } assignedStaffId
+            && assignedStaffId != user.UserId
+            && !await uow.Staff.IsActiveAgentAsync(assignedStaffId))
+            return LeadResult.Fail("The assigned agent was not found or is inactive.");
+
         if (await uow.Leads.ActiveLeadExistsAsync(contact.Id, parcel.Id))
             return LeadResult.Fail($"{contact.FullName} already has an active lead on parcel {parcel.Label}.");
 
@@ -41,7 +46,7 @@ public sealed class LeadService(
             Parcel = parcel,
             Stage = LeadStage.New,
             LastActivityAtUtc = now,
-            AssignedStaffId = user.UserId
+            AssignedStaffId = request.AssignedStaffId ?? user.UserId
         };
 
         uow.Leads.Add(lead);

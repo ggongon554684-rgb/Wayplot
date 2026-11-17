@@ -24,12 +24,14 @@ public class TenantDbContext : DbContext
     public bool SuppressAudit { get; set; }
 
     public DbSet<Staff> Staffs => Set<Staff>();
+    public DbSet<Branch> Branches => Set<Branch>();
     public DbSet<Setting> Settings => Set<Setting>();
     public DbSet<OutboxEntry> Outbox => Set<OutboxEntry>();
     public DbSet<Owner> Owners => Set<Owner>();
     public DbSet<Parcel> Parcels => Set<Parcel>();
     public DbSet<ParcelPhoto> ParcelPhotos => Set<ParcelPhoto>();
     public DbSet<Contact> Contacts => Set<Contact>();
+    public DbSet<DuplicateInquiry> DuplicateInquiries => Set<DuplicateInquiry>();
     public DbSet<Lead> Leads => Set<Lead>();
     public DbSet<Interaction> Interactions => Set<Interaction>();
     public DbSet<StageHistory> StageHistories => Set<StageHistory>();
@@ -62,14 +64,21 @@ public class TenantDbContext : DbContext
     protected override void OnModelCreating(ModelBuilder b)
     {
         // Soft-delete filter and the Version concurrency token on every syncable table.
-        Base<Staff>(b); Base<Setting>(b); Base<Owner>(b); Base<Parcel>(b); Base<ParcelPhoto>(b);
-        Base<Contact>(b); Base<Lead>(b); Base<Interaction>(b); Base<StageHistory>(b); Base<Deal>(b);
+        Base<Staff>(b); Base<Branch>(b); Base<Setting>(b); Base<Owner>(b); Base<Parcel>(b); Base<ParcelPhoto>(b);
+        Base<Contact>(b); Base<DuplicateInquiry>(b); Base<Lead>(b); Base<Interaction>(b); Base<StageHistory>(b); Base<Deal>(b);
         Base<Payment>(b); Base<Commission>(b); Base<ReferralBonus>(b); Base<Document>(b); Base<LandownerPayout>(b);
 
         b.Entity<Staff>(e =>
         {
             e.Property(s => s.Username).HasMaxLength(100).IsRequired();
             e.HasIndex(s => s.UserId).IsUnique();
+            e.HasOne<Branch>().WithMany().HasForeignKey(s => s.BranchId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        b.Entity<Branch>(e =>
+        {
+            e.Property(branch => branch.Name).HasMaxLength(120).IsRequired();
+            e.HasIndex(branch => branch.Name).IsUnique().HasFilter("[IsDeleted] = 0");
         });
 
         b.Entity<Setting>(e =>
@@ -82,6 +91,8 @@ public class TenantDbContext : DbContext
         {
             e.Property(p => p.Label).HasMaxLength(60).IsRequired();
             e.HasIndex(p => p.Label).IsUnique().HasFilter("[IsDeleted] = 0").HasDatabaseName("UX_Parcel_Label");
+            e.HasIndex(p => p.AssignedStaffId);
+            e.HasOne<Staff>().WithMany().HasForeignKey(p => p.AssignedStaffId).OnDelete(DeleteBehavior.Restrict);
         });
 
         b.Entity<Contact>(e =>
@@ -94,25 +105,69 @@ public class TenantDbContext : DbContext
                 .HasFilter("[PhoneNormalized] IS NOT NULL AND [IsDeleted] = 0")
                 .HasDatabaseName("UX_Contact_Phone");
             e.HasIndex(c => c.Email);
+            e.HasIndex(c => c.AssignedStaffId);
+            e.HasOne<Staff>().WithMany().HasForeignKey(c => c.AssignedStaffId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<Staff>().WithMany().HasForeignKey(c => c.ReferrerStaffId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        b.Entity<DuplicateInquiry>(e =>
+        {
+            e.Property(inquiry => inquiry.Details).IsRequired();
+            e.HasIndex(inquiry => new { inquiry.ContactId, inquiry.OccurredAtUtc });
+            e.HasOne(inquiry => inquiry.Contact).WithMany().HasForeignKey(inquiry => inquiry.ContactId);
+            e.HasOne(inquiry => inquiry.Parcel).WithMany().HasForeignKey(inquiry => inquiry.ParcelId);
+            e.HasOne<Staff>().WithMany().HasForeignKey(inquiry => inquiry.RecordedByStaffId).OnDelete(DeleteBehavior.Restrict);
         });
 
         b.Entity<Lead>(e =>
-            // Race guard: only one lead per parcel may be in Negotiation.
-            e.HasIndex(l => l.ParcelId).IsUnique()
-                .HasFilter("[Stage] = 'Negotiation' AND [IsDeleted] = 0")
-                .HasDatabaseName("UX_Lead_OneNegotiationPerParcel"));
+        {
+            e.HasIndex(l => l.AssignedStaffId);
+            e.HasIndex(l => l.ParcelId);
+            e.HasIndex(l => new { l.Id, l.ContactId, l.ParcelId }).IsUnique()
+                .HasDatabaseName("UX_Lead_Id_ContactId_ParcelId");
+            e.HasOne<Staff>().WithMany().HasForeignKey(l => l.AssignedStaffId).OnDelete(DeleteBehavior.Restrict);
+        });
 
         b.Entity<Deal>(e =>
-            // Race guard: only one active deal per parcel, so a lot cannot be sold twice.
+        {
+            // Deal contact and parcel are immutable snapshots of the lead at deal creation.
+            e.HasOne(d => d.Lead).WithMany()
+                .HasForeignKey(d => new { d.LeadId, d.ContactId, d.ParcelId })
+                .HasPrincipalKey(l => new { l.Id, l.ContactId, l.ParcelId })
+                .OnDelete(DeleteBehavior.Restrict);
+            e.HasIndex(d => d.AgentStaffId);
             e.HasIndex(d => d.ParcelId).IsUnique()
-                .HasFilter("[IsActive] = 1")
-                .HasDatabaseName("UX_Deal_OneActivePerParcel"));
+                .HasFilter("[IsActive] = 1 AND [IsDeleted] = 0")
+                .HasDatabaseName("UX_Deal_OneActivePerParcel");
+            e.HasOne<Staff>().WithMany().HasForeignKey(d => d.AgentStaffId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<Staff>().WithMany().HasForeignKey(d => d.ConfirmedByStaffId).OnDelete(DeleteBehavior.Restrict);
+        });
 
         b.Entity<Payment>(e =>
         {
             e.Property(p => p.ReceiptNo).HasMaxLength(50).IsRequired();
             e.HasIndex(p => p.ReceiptNo).IsUnique().HasFilter("[IsDeleted] = 0").HasDatabaseName("UX_Payment_Receipt");
+            e.HasOne<Staff>().WithMany().HasForeignKey(p => p.RecordedByStaffId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<Staff>().WithMany().HasForeignKey(p => p.ConfirmedByStaffId).OnDelete(DeleteBehavior.Restrict);
         });
+
+        b.Entity<Commission>(e =>
+        {
+            e.HasIndex(commission => commission.RecipientStaffId);
+            e.HasOne<Staff>().WithMany().HasForeignKey(commission => commission.RecipientStaffId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        b.Entity<ReferralBonus>(e =>
+            e.HasOne<Staff>().WithMany().HasForeignKey(bonus => bonus.ReferrerStaffId).OnDelete(DeleteBehavior.Restrict));
+
+        b.Entity<Document>(e =>
+            e.HasOne<Staff>().WithMany().HasForeignKey(document => document.UploadedByStaffId).OnDelete(DeleteBehavior.Restrict));
+
+        b.Entity<Interaction>(e =>
+            e.HasOne<Staff>().WithMany().HasForeignKey(interaction => interaction.LoggedByStaffId).OnDelete(DeleteBehavior.Restrict));
+
+        b.Entity<StageHistory>(e =>
+            e.HasOne<Staff>().WithMany().HasForeignKey(history => history.ChangedByStaffId).OnDelete(DeleteBehavior.Restrict));
 
         b.Entity<OutboxEntry>(e =>
         {

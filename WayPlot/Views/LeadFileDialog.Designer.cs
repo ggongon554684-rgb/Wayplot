@@ -34,6 +34,8 @@ namespace WayPlot.Views
             colInteractionChannel = new ColumnHeader();
             colInteractionDate = new ColumnHeader();
             colInteractionNote = new ColumnHeader();
+            interactionHeader = new TableLayoutPanel();
+            btnLogInteraction = new Button();
             moveLayout = new TableLayoutPanel();
             lblMove = new Label();
             cboStage = new ComboBox();
@@ -115,6 +117,21 @@ namespace WayPlot.Views
             colInteractionDate.Width = 180;
             colInteractionNote.Text = "Note";
             colInteractionNote.Width = 360;
+            interactionHeader.Controls.Add(lblInteractions, 0, 0);
+            interactionHeader.Controls.Add(btnLogInteraction, 1, 0);
+            interactionHeader.ColumnCount = 2;
+            interactionHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            interactionHeader.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            interactionHeader.Dock = DockStyle.Fill;
+            interactionHeader.Margin = new Padding(0, 8, 0, 4);
+            interactionHeader.Name = "interactionHeader";
+            interactionHeader.RowCount = 1;
+            interactionHeader.RowStyles.Add(new RowStyle());
+            btnLogInteraction.AutoSize = true;
+            btnLogInteraction.Margin = new Padding(8, 0, 0, 0);
+            btnLogInteraction.Name = "btnLogInteraction";
+            btnLogInteraction.Text = "Log interaction";
+            btnLogInteraction.UseVisualStyleBackColor = false;
             moveLayout.Controls.Add(lblMove, 0, 0);
             moveLayout.Controls.Add(cboStage, 1, 0);
             moveLayout.Controls.Add(btnMoveStage, 2, 0);
@@ -151,7 +168,7 @@ namespace WayPlot.Views
             lblHistory.Text = "Stage history (oldest first)";
             lblHistory.UseMnemonic = false;
             lblInteractions.AutoSize = true;
-            lblInteractions.Margin = new Padding(0, 8, 0, 4);
+            lblInteractions.Margin = new Padding(0);
             lblInteractions.Name = "lblInteractions";
             lblInteractions.Text = "Interactions (newest first)";
             lblInteractions.UseMnemonic = false;
@@ -177,7 +194,7 @@ namespace WayPlot.Views
             layout.Controls.Add(summary, 0, 0);
             layout.Controls.Add(lblHistory, 0, 1);
             layout.Controls.Add(listHistory, 0, 2);
-            layout.Controls.Add(lblInteractions, 0, 3);
+            layout.Controls.Add(interactionHeader, 0, 3);
             layout.Controls.Add(listInteractions, 0, 4);
             layout.Controls.Add(moveLayout, 0, 5);
             layout.Controls.Add(lblStatus, 0, 6);
@@ -230,6 +247,8 @@ namespace WayPlot.Views
         private ColumnHeader colInteractionChannel;
         private ColumnHeader colInteractionDate;
         private ColumnHeader colInteractionNote;
+        private TableLayoutPanel interactionHeader;
+        private Button btnLogInteraction;
         private TableLayoutPanel moveLayout;
         private Label lblMove;
         private ComboBox cboStage;

@@ -31,6 +31,8 @@ public partial class ContactsView : UserControl, IContactsView
         };
 
         btnNew.Click += async (_, _) => await NewContactAsync();
+        btnImport.Click += async (_, _) => await ImportCsvAsync();
+        UpdateImportAction();
         FitColumns();
     }
 
@@ -39,12 +41,17 @@ public partial class ContactsView : UserControl, IContactsView
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public ContactsPresenter? Presenter
     {
-        set => _presenter = value;
+        set
+        {
+            _presenter = value;
+            UpdateImportAction();
+        }
     }
 
     protected override async void OnLoad(EventArgs e)
     {
         base.OnLoad(e);
+        UpdateImportAction();
         if (_presenter is not null && !DesignMode)
             await _presenter.LoadAsync();
     }
@@ -74,14 +81,26 @@ public partial class ContactsView : UserControl, IContactsView
         colEmailConsent.Width = LogicalToDeviceUnits(110);
 
         var used = colName.Width + colPhone.Width + colSource.Width + colType.Width + colSms.Width + colEmailConsent.Width;
-        colEmail.Width = Math.Max(LogicalToDeviceUnits(160), listContacts.ClientSize.Width - used);
+        colEmail.Width = Math.Max(0, listContacts.ClientSize.Width - SystemInformation.VerticalScrollBarWidth - used);
     }
 
     private async Task NewContactAsync()
     {
         if (_presenter is null) return;
 
-        using var dialog = new ContactDialog { SaveHandler = _presenter.CaptureAsync };
+        var choices = await _presenter.GetReferralOptionsAsync();
+        if (IsDisposed) return;
+        if (!choices.Ok || choices.Value is null)
+        {
+            ShowStatus(choices.Message, true);
+            return;
+        }
+
+        using var dialog = new ContactDialog
+        {
+            SaveHandler = _presenter.CaptureAsync,
+            ReferralOptions = choices.Value
+        };
         if (dialog.ShowDialog(FindForm()) != DialogResult.OK || dialog.Result is not { } saved)
             return;
 
@@ -89,6 +108,43 @@ public partial class ContactsView : UserControl, IContactsView
         txtSearch.Clear();
         searchTimer.Stop();
         await _presenter.LoadAsync(null, saved.Message);
+    }
+
+    private async Task ImportCsvAsync()
+    {
+        if (_presenter is null || !_presenter.CanImport) return;
+
+        using var dialog = new ContactImportDialog
+        {
+            ColumnsHandler = _presenter.ReadImportColumns,
+            PreviewHandler = _presenter.PreviewImportAsync,
+            ImportHandler = _presenter.ImportCsvAsync,
+            CanMapAgent = _presenter.CanAssignImportedContacts
+        };
+        if (dialog.ShowDialog(FindForm()) != DialogResult.OK || dialog.Result is not { } summary)
+            return;
+
+        await _presenter.LoadAsync(txtSearch.Text, ImportSummaryText(summary));
+    }
+
+    private static string ImportSummaryText(ContactImportSummary summary) =>
+        $"Import complete: {summary.ContactsCreated} contacts, {summary.LeadsCreated} leads, " +
+        $"{summary.Duplicates} duplicates, {summary.Rejected} rejected, {summary.Warnings} warnings.";
+
+    private void UpdateImportAction()
+    {
+        if (_presenter is null)
+        {
+            ButtonStyle.ApplyAvailability(
+                [new ButtonAvailability(btnImport, true, true, null, Primary: false)],
+                actionToolTip);
+            return;
+        }
+
+        var canImport = _presenter?.CanImport == true;
+        ButtonStyle.ApplyAvailability(
+            [new ButtonAvailability(btnImport, canImport, canImport, null, Primary: false)],
+            actionToolTip);
     }
 
     // ---- IContactsView ----

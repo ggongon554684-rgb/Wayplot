@@ -108,9 +108,14 @@ public sealed class ParcelMapControl : Control
         var w = Math.Max(maxX - minX, MinExtent);
         var h = Math.Max(maxY - minY, MinExtent);
 
-        _fitScale = Math.Min(Width * 0.96 / w, Height * 0.96 / h);
+        var legendHeight = Theme.Small.Height + Px(20);
+        var bottomInset = Px(14) + legendHeight + Px(10);
+        var mapHeight = Math.Max(20, Height - bottomInset);
+        _fitScale = Math.Min(Width * 0.96 / w, mapHeight * 0.96 / h);
         _scale = _fitScale;
-        _center = new PointD((minX + maxX) / 2, (minY + maxY) / 2);
+        _center = new PointD(
+            (minX + maxX) / 2,
+            (minY + maxY) / 2 + (mapHeight / 2.0 - Height / 2.0) / _scale);
         Invalidate();
     }
 
