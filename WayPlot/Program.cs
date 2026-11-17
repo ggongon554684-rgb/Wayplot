@@ -48,6 +48,12 @@ internal static class Program
                     var view = new ContactsView();
                     view.Presenter = new ContactsPresenter(view, sp.GetRequiredService<ContactService>());
                     return view;
+                },
+                ["leads"] = () =>
+                {
+                    var view = new LeadsView();
+                    view.Presenter = new LeadsPresenter(view, sp.GetRequiredService<LeadService>());
+                    return view;
                 }
             };
             return new MainShell(presenter, views);

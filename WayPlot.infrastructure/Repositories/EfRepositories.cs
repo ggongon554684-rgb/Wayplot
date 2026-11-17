@@ -87,6 +87,26 @@ internal sealed class LeadRepository(TenantDbContext db) : ILeadRepository
         db.Leads.AsNoTracking().Include(l => l.Contact).Include(l => l.Parcel)
             .FirstOrDefaultAsync(l => l.Id == id);
 
+    public async Task<IReadOnlyList<Lead>> ListAsync(LeadStage? stage, string? search)
+    {
+        IQueryable<Lead> query = db.Leads.AsNoTracking()
+            .Include(l => l.Contact)
+            .Include(l => l.Parcel);
+
+        if (stage is { } selectedStage)
+            query = query.Where(l => l.Stage == selectedStage);
+
+        var term = search?.Trim();
+        if (!string.IsNullOrEmpty(term))
+            query = query.Where(l => l.Contact.FullName.Contains(term) || l.Parcel.Label.Contains(term));
+
+        return await query
+            .OrderByDescending(l => l.LastActivityAtUtc)
+            .ThenByDescending(l => l.Id)
+            .Take(500)
+            .ToListAsync();
+    }
+
     public async Task<IReadOnlyList<Lead>> ListByParcelAsync(Guid parcelId) =>
         await db.Leads.AsNoTracking()
             .Include(l => l.Contact).Include(l => l.Parcel)

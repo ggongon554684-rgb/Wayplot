@@ -10,3 +10,4 @@ C:\Users\gabny\source\repos\wayplot\WayPlot.domain\obj\Debug\net10.0\refint\WayP
 C:\Users\gabny\source\repos\wayplot\WayPlot.domain\obj\Debug\net10.0\WayPlot.domain.pdb
 C:\Users\gabny\source\repos\wayplot\WayPlot.domain\obj\Debug\net10.0\ref\WayPlot.domain.dll
 C:\Users\gabny\source\repos\wayplot\WayPlot.domain\obj\Debug\net10.0\WayPlot..4A571F3D.Up2Date
+C:\Users\gabny\source\repos\wayplot\WayPlot.domain\obj\Debug\net10.0\WayPlot.domain.sourcelink.json

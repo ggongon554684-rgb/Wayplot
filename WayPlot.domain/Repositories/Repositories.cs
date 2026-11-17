@@ -1,4 +1,5 @@
 ﻿using WayPlot.domain.Entities;
+using WayPlot.domain.Common;
 
 namespace WayPlot.domain.Repositories;
 
@@ -38,6 +39,8 @@ public interface ILeadRepository
     Task<Lead?> GetAsync(Guid id);
     /// <summary>The lead with Contact and Parcel loaded for display, without tracking.</summary>
     Task<Lead?> GetForDisplayAsync(Guid id);
+    /// <summary>Leads matching the optional stage and contact/parcel search, newest activity first.</summary>
+    Task<IReadOnlyList<Lead>> ListAsync(LeadStage? stage, string? search);
     /// <summary>Leads on the parcel with Contact and Parcel loaded, newest activity first.</summary>
     Task<IReadOnlyList<Lead>> ListByParcelAsync(Guid parcelId);
     /// <summary>The contact's most recent lead that is not Lost, or null.</summary>

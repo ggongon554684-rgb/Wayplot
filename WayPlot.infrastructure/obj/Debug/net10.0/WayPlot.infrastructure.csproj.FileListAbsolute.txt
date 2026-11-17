@@ -13,3 +13,4 @@ C:\Users\gabny\source\repos\wayplot\WayPlot.infrastructure\obj\Debug\net10.0\Way
 C:\Users\gabny\source\repos\wayplot\WayPlot.infrastructure\obj\Debug\net10.0\refint\WayPlot.infrastructure.dll
 C:\Users\gabny\source\repos\wayplot\WayPlot.infrastructure\obj\Debug\net10.0\WayPlot.infrastructure.pdb
 C:\Users\gabny\source\repos\wayplot\WayPlot.infrastructure\obj\Debug\net10.0\ref\WayPlot.infrastructure.dll
+C:\Users\gabny\source\repos\wayplot\WayPlot.infrastructure\obj\Debug\net10.0\WayPlot.infrastructure.sourcelink.json

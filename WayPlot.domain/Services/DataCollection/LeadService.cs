@@ -68,6 +68,17 @@ public sealed class LeadService(
         return (await uow.Leads.ListByParcelAsync(parcelId)).Select(ToDto).ToList();
     }
 
+    public async Task<ServiceResult<IReadOnlyList<LeadListItem>>> ListAsync(LeadStage? stage, string? search)
+    {
+        await using var uow = uowFactory.Create();
+        var leads = await uow.Leads.ListAsync(stage, search);
+        IReadOnlyList<LeadListItem> items = leads
+            .Select(l => new LeadListItem(
+                l.Id, l.Contact.FullName, l.Parcel.Label, l.Stage, l.OfferAmount, l.LastActivityAtUtc))
+            .ToList();
+        return ServiceResult<IReadOnlyList<LeadListItem>>.Success(items);
+    }
+
     public async Task<ServiceResult<LeadFileDto>> GetFileAsync(Guid leadId)
     {
         await using var uow = uowFactory.Create();

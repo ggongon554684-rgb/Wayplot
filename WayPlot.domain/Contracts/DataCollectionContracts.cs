@@ -88,6 +88,14 @@ public sealed record LeadDto(
     string? LostReason,
     DateTime LastActivityAtUtc);
 
+public sealed record LeadListItem(
+    Guid Id,
+    string ContactName,
+    string ParcelLabel,
+    LeadStage Stage,
+    decimal? OfferAmount,
+    DateTime LastActivityAtUtc);
+
 public sealed record LeadFileDto(
     Guid Id,
     string ContactName,
