@@ -1,0 +1,35 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Compile Update="LoginForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Update="UI\PillTabBar.cs">
+      <SubType>Component</SubType>
+    </Compile>
+    <Compile Update="UI\RoundedPanel.cs">
+      <SubType>Component</SubType>
+    </Compile>
+    <Compile Update="UI\StatTile.cs">
+      <SubType>Component</SubType>
+    </Compile>
+    <Compile Update="UI\StatusChip.cs">
+      <SubType>Component</SubType>
+    </Compile>
+    <Compile Update="Views\ContactDialog.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Update="Views\ContactsView.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Update="Views\MainShell.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Update="Views\ComingNextView.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Update="Views\ParcelMapView.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+  </ItemGroup>
+</Project>

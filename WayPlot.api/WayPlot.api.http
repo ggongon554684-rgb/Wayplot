@@ -1,0 +1,16 @@
+# Open this file in Visual Studio and press the green arrow beside a request.
+# Replace the port with the http port in WayPlot.API/Properties/launchSettings.json.
+@host = http://localhost:5080
+
+### Agent of Tenant A
+POST {{host}}/api/v1/auth/login
+Content-Type: application/json
+
+{ "username": "ana.a", "password": "Demo#2026" }
+
+### Wrong password (should return 401)
+POST {{host}}/api/v1/auth/login
+Content-Type: application/json
+
+{ "username": "ana.a", "password": "wrong" }
+  

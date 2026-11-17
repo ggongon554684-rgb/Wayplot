@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="../WayPlot.api/WayPlot.api.csproj" />
+  <Project Path="../WayPlot.domain/WayPlot.domain.csproj" />
+  <Project Path="../WayPlot.infrastructure/WayPlot.infrastructure.csproj" />
+  <Project Path="WayPlot.csproj" />
+</Solution>
