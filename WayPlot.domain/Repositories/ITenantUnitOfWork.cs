@@ -1,4 +1,6 @@
-﻿namespace WayPlot.domain.Repositories;
+using System.Data;
+
+namespace WayPlot.domain.Repositories;
 
 /// <summary>One short-lived unit of work per operation. Dispose it when the operation ends.</summary>
 public interface ITenantUnitOfWork : IAsyncDisposable
@@ -8,6 +10,7 @@ public interface ITenantUnitOfWork : IAsyncDisposable
     IParcelPhotoRepository ParcelPhotos { get; }
     IContactRepository Contacts { get; }
     IStaffRepository Staff { get; }
+    IBranchRepository Branches { get; }
     ISettingRepository Settings { get; }
     ILeadRepository Leads { get; }
     IInteractionRepository Interactions { get; }
@@ -22,6 +25,7 @@ public interface ITenantUnitOfWork : IAsyncDisposable
     Task<int> SaveAsync();
 
     Task ExecuteInTransactionAsync(Func<Task> operation);
+    Task ExecuteInTransactionAsync(Func<Task> operation, IsolationLevel isolationLevel);
 }
 
 /// <summary>Creates a unit of work for the signed-in tenant. Services call Create() per operation and never keep the result.</summary>

@@ -106,7 +106,10 @@ public sealed record ChangeParcelPriceRequest(Guid ParcelId, decimal Price, deci
 
 public sealed record ReassignParcelRequest(Guid ParcelId, Guid AssignedStaffId);
 
-public sealed record ParcelAgentOption(Guid Id, string FullName);
+public sealed record ParcelAgentOption(Guid Id, string FullName)
+{
+    public override string ToString() => FullName;
+}
 
 /// <summary>PricePerSqm and ReservationPercent are computed by ParcelService, never by a screen.</summary>
 public sealed record ParcelDto(

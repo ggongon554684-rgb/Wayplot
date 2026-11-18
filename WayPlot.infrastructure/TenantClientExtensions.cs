@@ -47,6 +47,7 @@ public static class TenantClientExtensions
         services.AddSingleton<CommissionService>();
         services.AddSingleton<DealService>();
         services.AddSingleton<StaffService>();
+        services.AddSingleton<CompanyProfileService>();
         services.AddSingleton<TenantSeeder>();
         return services;
     }

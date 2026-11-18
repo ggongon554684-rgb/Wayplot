@@ -6,6 +6,7 @@
 - `TenantAccessPolicy` performs role and scope checks. Super Admin is refused tenant access; Branch Manager reads are branch-scoped and mutations are refused.
 - Repository entities are tracked for mutations and short-lived unit-of-work contexts are disposed after operations. Mutations use `ExecuteInTransactionAsync` and the entity `Version` concurrency token.
 - Existing domain events such as `LeadCaptured`, `LeadStageChanged`, `DealChanged`, `PaymentConfirmed`, and `PayoutChanged` remain the change-event surface.
+- Admin setting and assignment changes also dispatch `TenantSettingChanged`, `StaffChanged`, `ContactChanged`, and `ParcelChanged` events.
 - Later screens use the domain DTOs and service methods below instead of entities.
 
 ## B3 methods and rules
@@ -22,7 +23,13 @@
 | Allowed moves | `LeadService.GetAllowedMovesAsync(Guid)` | Scoped roles | Reproduces existing stage rules; Closed remains the deal request flow. |
 | Timeline | `LeadService.GetLeadTimelineAsync(Guid)` | Scoped roles | Merges history, interactions and existing deal fields, newest first and local time. |
 | Reassignment | `LeadService.ReassignLeadAsync`, `ReassignContactAsync`, `ReassignAllFromAgentAsync` | Tenant Admin | Active Agents only; Tier C cross-branch moves refuse; history/deals/payouts are preserved. |
-| Staff | `StaffService.ListStaffAsync()` | Admin/BranchManager | Admin sees tenant staff; Branch Manager sees the own branch. |
+| Reassignment preview | `LeadService.PreviewReassignAllFromAgentAsync(Guid, Guid)` | Tenant Admin | Read-only count preview for the bulk confirmation; uses the same active-Agent and Tier C branch checks as bulk reassignment. |
+| Staff | `StaffService.ListStaffAsync()` | Admin/BranchManager | Admin sees tenant staff; Branch Manager sees the own branch and scoped counts. |
+| Staff mutations | `StaffService.DeactivateAsync(Guid, int)`, `ReactivateAsync(Guid, int)`, `ChangeBranchAsync(Guid, Guid, int)` | Tenant Admin | Soft-deactivate only; refuse self and last active Tenant Admin; Agents with open leads or available parcels must be reassigned first. Branch changes require Tier C and an existing branch. Version conflicts refuse cleanly. |
+| Branch list | `StaffService.ListBranchesAsync()` | Tenant Admin, Tier C | Only existing tenant branches are returned for staff assignment. |
+| Review queue | `DealService.GetAdminReviewQueueAsync()` | Tenant Admin | Lists unconfirmed Closed requests and payments awaiting confirmation. Confirmation and return actions use the existing DealService methods. |
+| Commission rules | `CommissionService.GetRulesAsync`, `SaveRulesAsync` | Tenant Admin | Versioned history; JSON writes `CommissionCalculationType` and `CommissionPayableTiming` as text while accepting legacy numeric enum values. Commission amount overrides may target an active Agent or existing parcel; an Agent override wins when both match. Shares and referral rules remain global. |
+| Company profile | `CompanyProfileService.GetAsync`, `SaveAsync(CompanyProfileRequest)` | Tenant-readable roles / Tenant Admin saves | Stores name, contact numbers, email and document address in the `CompanyProfile` Setting JSON with Version, ChangedAtUtc and ChangedBy. Length limits: 150, 200, 254 and 500 characters respectively. |
 
 ## B2 and B2b existing service surface
 
@@ -47,7 +54,10 @@
 - Contacts tab: `ListPeopleAsync`, contact deal cards from `GetDealSummariesForContactAsync`.
 - Add/Switch lot: `AddLeadForContactAsync`, `SwitchLotAsync`.
 - Pipeline and timeline: `GetPipelineBoardAsync`, `GetAllowedMovesAsync`, `GetLeadTimelineAsync`.
-- Admin team tools: `ListStaffAsync` and the three reassignment methods.
+- Admin team tools: staff list/mutations, `ListBranchesAsync`, reassignment preview and the lead/contact/parcel/bulk reassignment methods.
+- Tenant Admin screens: Team and Review; commission rules and profile dialogs are role-gated by their services. Invite and role changes are unavailable until the account service exists.
+- Company profile reads are available to Agent, Branch Manager and Tenant Admin. Only Tenant Admin can save.
+- There is no cancel-request queue in this application; confirmed-deal cancellation is a direct Tenant Admin action, not a queued request.
 
 ## Worked deal summary examples
 

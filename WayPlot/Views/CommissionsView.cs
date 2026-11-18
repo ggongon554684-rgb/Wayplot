@@ -17,6 +17,7 @@ public partial class CommissionsView : UserControl, ICommissionsView
         ApplyTheme();
 
         btnRules.Click += (_, _) => AsyncUiEvent.Run(this, OpenRulesAsync, "Could not open commission rules. Try again.");
+        btnCompanyProfile.Click += (_, _) => AsyncUiEvent.Run(this, OpenCompanyProfileAsync, "Could not open the company profile. Try again.");
         btnApprove.Click += (_, _) => AsyncUiEvent.Run(this, ApproveAsync, "Could not approve the payout. Try again.");
         btnMarkPaid.Click += (_, _) => AsyncUiEvent.Run(this, MarkPaidAsync, "Could not mark the payout as paid. Try again.");
         listPayouts.SelectedIndexChanged += (_, _) => UpdateActions();
@@ -47,8 +48,7 @@ public partial class CommissionsView : UserControl, ICommissionsView
         }
         catch (Exception)
         {
-            if (!IsDisposed)
-                ShowStatus("Could not load commissions. Try again.", true);
+            if (!IsDisposed) ShowStatus("Could not load commissions. Try again.", true);
         }
     }
 
@@ -67,6 +67,7 @@ public partial class CommissionsView : UserControl, ICommissionsView
         ButtonStyle.ApplyAvailability(
         [
             new(btnRules, true, true, null, false),
+            new(btnCompanyProfile, true, true, null, false),
             new(btnApprove, true, true, null, false),
             new(btnMarkPaid, true, true, null, true)
         ], actionToolTip);
@@ -79,6 +80,8 @@ public partial class CommissionsView : UserControl, ICommissionsView
         [
             new(btnRules, actions?.ManageRules.Visible == true,
                 actions?.ManageRules.Enabled == true, actions?.ManageRules.DisabledReason, false),
+            new(btnCompanyProfile, _presenter?.CanReadCompanyProfile == true,
+                _presenter?.CanReadCompanyProfile == true, null, false),
             new(btnApprove, actions?.Approve.Visible == true,
                 actions?.Approve.Enabled == true, actions?.Approve.DisabledReason, false),
             new(btnMarkPaid, actions?.MarkPaid.Visible == true,
@@ -90,56 +93,114 @@ public partial class CommissionsView : UserControl, ICommissionsView
     {
         var presenter = _presenter;
         if (presenter is null) return;
-        var result = await presenter.GetRulesAsync();
-        if (IsDisposed) return;
-        if (!result.Ok || result.Value is null)
+        try
         {
-            ShowStatus(result.Message, true);
-            return;
-        }
+            var result = await presenter.GetRulesAsync();
+            if (IsDisposed) return;
+            if (!result.Ok || result.Value is null)
+            {
+                ShowStatus(result.Message, true);
+                return;
+            }
+            var targetResult = await presenter.GetOverrideTargetsAsync();
+            if (IsDisposed) return;
+            if (!targetResult.Ok || targetResult.Value is null)
+            {
+                ShowStatus(targetResult.Message, true);
+                return;
+            }
 
-        using var dialog = new CommissionRulesDialog
+            using var dialog = new CommissionRulesDialog
+            {
+                Targets = targetResult.Value,
+                Rules = result.Value,
+                HasBranching = presenter.HasBranching,
+                SaveHandler = presenter.SaveRulesAsync
+            };
+            if (dialog.ShowDialog(FindForm()) == DialogResult.OK && dialog.Result is { } saved && saved.Ok)
+                await presenter.LoadAsync(saved.Message);
+        }
+        catch (Exception)
         {
-            Rules = result.Value,
-            HasBranching = presenter.HasBranching,
-            SaveHandler = presenter.SaveRulesAsync
-        };
-        if (dialog.ShowDialog(FindForm()) == DialogResult.OK && dialog.Result is { } saved && saved.Ok)
-            await presenter.LoadAsync(saved.Message);
+            if (!IsDisposed) ShowStatus("Commission rules could not be opened. Try again.", true);
+        }
+    }
+
+    private async Task OpenCompanyProfileAsync()
+    {
+        var presenter = _presenter;
+        if (presenter is null) return;
+        try
+        {
+            var result = await presenter.GetCompanyProfileAsync();
+            if (IsDisposed) return;
+            if (!result.Ok || result.Value is null)
+            {
+                ShowStatus(result.Message, true);
+                return;
+            }
+
+            using var dialog = new CompanyProfileDialog
+            {
+                Profile = result.Value,
+                IsReadOnly = !presenter.CanEditCompanyProfile,
+                SaveHandler = presenter.SaveCompanyProfileAsync
+            };
+            if (dialog.ShowDialog(FindForm()) == DialogResult.OK && dialog.Result is { Ok: true } saved)
+                ShowStatus(saved.Message, false);
+        }
+        catch (Exception)
+        {
+            if (!IsDisposed) ShowStatus("The company profile could not be opened. Try again.", true);
+        }
     }
 
     private async Task ApproveAsync()
     {
         var presenter = _presenter;
         if (presenter is null || SelectedPayout is not { } payout) return;
-        if (MessageBox.Show(FindForm(), "Approve this payout?", "Approve payout",
-                MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
-            return;
-        var result = await presenter.ApproveAsync(payout);
-        if (IsDisposed) return;
-        if (!result.Ok)
+        try
         {
-            ShowStatus(result.Message, true);
-            return;
+            if (MessageBox.Show(FindForm(), "Approve this payout?", "Approve payout",
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+                return;
+            var result = await presenter.ApproveAsync(payout);
+            if (IsDisposed) return;
+            if (!result.Ok)
+            {
+                ShowStatus(result.Message, true);
+                return;
+            }
+            await presenter.LoadAsync(result.Message);
         }
-        await presenter.LoadAsync(result.Message);
+        catch (Exception)
+        {
+            if (!IsDisposed) ShowStatus("The payout could not be approved. Reload and try again.", true);
+        }
     }
 
     private async Task MarkPaidAsync()
     {
         var presenter = _presenter;
         if (presenter is null || SelectedPayout is not { } payout) return;
-        if (MessageBox.Show(FindForm(), "Record this payout as Paid today?", "Mark payout Paid",
-                MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
-            return;
-        var result = await presenter.MarkPaidAsync(payout);
-        if (IsDisposed) return;
-        if (!result.Ok)
+        try
         {
-            ShowStatus(result.Message, true);
-            return;
+            if (MessageBox.Show(FindForm(), "Record this payout as Paid today?", "Mark payout Paid",
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+                return;
+            var result = await presenter.MarkPaidAsync(payout);
+            if (IsDisposed) return;
+            if (!result.Ok)
+            {
+                ShowStatus(result.Message, true);
+                return;
+            }
+            await presenter.LoadAsync(result.Message);
         }
-        await presenter.LoadAsync(result.Message);
+        catch (Exception)
+        {
+            if (!IsDisposed) ShowStatus("The payout could not be marked Paid. Reload and try again.", true);
+        }
     }
 
     public void ShowPayouts(IReadOnlyList<PayoutListItem> payouts)

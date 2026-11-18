@@ -96,7 +96,31 @@ internal static class Program
                         view,
                         sp.GetRequiredService<CommissionService>(),
                         sp.GetRequiredService<ICurrentUser>(),
-                        sp.GetRequiredService<ITenantFeatures>());
+                        sp.GetRequiredService<ITenantFeatures>(),
+                        sp.GetRequiredService<WayPlot.domain.Services.Admin.CompanyProfileService>(),
+                        sp.GetRequiredService<WayPlot.domain.Services.Admin.StaffService>(),
+                        sp.GetRequiredService<ParcelService>());
+                    return view;
+                },
+                ["team"] = () =>
+                {
+                    var view = new TeamAdminView();
+                    view.Presenter = new TeamAdminPresenter(
+                        sp.GetRequiredService<WayPlot.domain.Services.Admin.StaffService>(),
+                        sp.GetRequiredService<LeadService>(),
+                        sp.GetRequiredService<ContactService>(),
+                        sp.GetRequiredService<ParcelService>(),
+                        sp.GetRequiredService<WayPlot.domain.Services.Admin.CompanyProfileService>(),
+                        sp.GetRequiredService<ITenantFeatures>().Branching,
+                        sp.GetRequiredService<ICurrentUser>().UserId);
+                    return view;
+                },
+                ["review"] = () =>
+                {
+                    var view = new AdminReviewView();
+                    view.Presenter = new AdminReviewPresenter(
+                        sp.GetRequiredService<DealService>(),
+                        sp.GetRequiredService<CommissionService>());
                     return view;
                 }
             };

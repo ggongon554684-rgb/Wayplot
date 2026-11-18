@@ -1,3 +1,4 @@
+using System.Data;
 using WayPlot.domain.Common;
 using WayPlot.domain.Entities;
 using WayPlot.domain.Events;
@@ -83,6 +84,7 @@ public sealed class DealStatusRefreshEventTests
         public IParcelPhotoRepository ParcelPhotos => null!;
         public IContactRepository Contacts => null!;
         public IStaffRepository Staff => null!;
+        public IBranchRepository Branches => throw new NotSupportedException();
         public ISettingRepository Settings => null!;
         public ILeadRepository Leads => null!;
         public IInteractionRepository Interactions => null!;
@@ -101,6 +103,7 @@ public sealed class DealStatusRefreshEventTests
         }
 
         public Task ExecuteInTransactionAsync(Func<Task> operation) => operation();
+        public Task ExecuteInTransactionAsync(Func<Task> operation, IsolationLevel isolationLevel) => ExecuteInTransactionAsync(operation);
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
         private sealed class DealRepository(IReadOnlyList<Deal> deals, Action<Deal> touch) : IDealRepository

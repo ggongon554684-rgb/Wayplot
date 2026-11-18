@@ -2,6 +2,8 @@ using System.Text.Json;
 using WayPlot.domain.Common;
 using WayPlot.domain.Contracts;
 using WayPlot.domain.Entities;
+using WayPlot.domain.Events;
+using WayPlot.domain.Interfaces;
 using WayPlot.domain.Repositories;
 using ParcelResult = WayPlot.domain.Common.ServiceResult<WayPlot.domain.Contracts.ParcelDto>;
 using OwnerResult = WayPlot.domain.Common.ServiceResult<WayPlot.domain.Contracts.OwnerDto>;
@@ -9,7 +11,12 @@ using OwnerResult = WayPlot.domain.Common.ServiceResult<WayPlot.domain.Contracts
 namespace WayPlot.domain.Services.DataCollection;
 
 /// <summary>Parcels and their owners. A parcel always has an owner: a landowner, or the company itself as an owner row.</summary>
-public sealed class ParcelService(ITenantUnitOfWorkFactory uowFactory, TenantAccessPolicy access)
+public sealed class ParcelService(
+    ITenantUnitOfWorkFactory uowFactory,
+    TenantAccessPolicy access,
+    ITenantFeatures features,
+    IDomainEventDispatcher events,
+    IClock clock)
 {
     public async Task<OwnerResult> CreateOwnerAsync(CreateOwnerRequest request)
     {
@@ -242,6 +249,14 @@ public sealed class ParcelService(ITenantUnitOfWorkFactory uowFactory, TenantAcc
             return ParcelResult.Fail("That parcel was not found or has been archived.");
         if (!await uow.Staff.IsActiveAgentAsync(request.AssignedStaffId))
             return ParcelResult.Fail("Choose an active Agent to reassign this parcel.");
+        var target = (await uow.Staff.ListByIdsAsync([request.AssignedStaffId])).FirstOrDefault();
+        if (target is null || !target.IsActive || target.Role != Roles.Agent)
+            return ParcelResult.Fail("Choose an active Agent to reassign this parcel.");
+        var source = parcel.AssignedStaffId is { } sourceId
+            ? (await uow.Staff.ListByIdsAsync([sourceId])).FirstOrDefault()
+            : null;
+        if (features.Branching && source?.BranchId != target.BranchId)
+            return ParcelResult.Fail("Tier C does not allow reassignment between branches.");
 
         parcel.AssignedStaffId = request.AssignedStaffId;
         try
@@ -253,6 +268,7 @@ public sealed class ParcelService(ITenantUnitOfWorkFactory uowFactory, TenantAcc
             return ParcelResult.Fail("This parcel changed while you were editing it. Reload it and try again.");
         }
 
+        await events.DispatchAsync(new ParcelChanged(parcel.Id, clock.UtcNow));
         return ParcelResult.Success(ToDto(parcel, parcel.Owner), "Parcel reassigned. Existing leads were not changed.");
     }
 

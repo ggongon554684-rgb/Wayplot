@@ -10,7 +10,22 @@ public sealed record CommissionRulesRequest(
     decimal BranchManagerSharePercent,
     CommissionCalculationType ReferralType,
     decimal ReferralAmount,
-    CommissionPayableTiming PayableTiming);
+    CommissionPayableTiming PayableTiming,
+    int ExpectedVersion = 0,
+    IReadOnlyList<CommissionRuleOverride>? Overrides = null);
+
+public enum CommissionOverrideScope { Agent, Parcel }
+
+public sealed record CommissionRuleOverride(
+    CommissionOverrideScope Scope,
+    Guid TargetId,
+    CommissionCalculationType Type,
+    decimal Amount);
+
+public sealed record CommissionOverrideTarget(
+    CommissionOverrideScope Scope,
+    Guid Id,
+    string Display);
 
 public sealed record CommissionRulesVersion(
     int Version,
@@ -23,7 +38,8 @@ public sealed record CommissionRulesVersion(
     decimal BranchManagerSharePercent,
     CommissionCalculationType ReferralType,
     decimal ReferralAmount,
-    CommissionPayableTiming PayableTiming);
+    CommissionPayableTiming PayableTiming,
+    IReadOnlyList<CommissionRuleOverride>? Overrides = null);
 
 public sealed record CommissionRulesSnapshot(
     CommissionRulesVersion? Current,
