@@ -96,6 +96,8 @@ public sealed class ContactService(
             return "Choose a valid source.";
         if (!Enum.IsDefined(request.Type))
             return "Choose a valid contact type.";
+        if (request.Type == ContactType.Client)
+            return "Client status is set automatically when a deal is confirmed.";
 
         phoneText = string.IsNullOrWhiteSpace(request.Phone) ? null : request.Phone.Trim();
         phone = PhoneNormalizer.Normalize(phoneText);
@@ -116,6 +118,20 @@ public sealed class ContactService(
     // Paste this method inside ContactService, right after CaptureAsync (before RecordInquiryOnExistingAsync).
 
     /// <summary>The contacts for the list screen, ordered by name. A blank search returns everyone.</summary>
+    public async Task<ServiceResult<ContactListItem>> GetAsync(Guid contactId)
+    {
+        var scope = access.GetDataReadScope("contacts");
+        if (!scope.Ok)
+            return ServiceResult<ContactListItem>.Fail(scope.Message);
+        await using var uow = uowFactory.Create();
+        var contact = await uow.Contacts.GetAsync(contactId, scope.Value);
+        if (contact is null)
+            return ServiceResult<ContactListItem>.Fail("That contact was not found or is outside your access scope.");
+        return ServiceResult<ContactListItem>.Success(new ContactListItem(
+            contact.Id, contact.FullName, contact.Phone, contact.Email, contact.Source,
+            contact.Type, contact.ConsentSms, contact.ConsentEmail));
+    }
+
     public async Task<ServiceResult<IReadOnlyList<ContactListItem>>> ListAsync(string? search)
     {
         var scope = access.GetDataReadScope("contacts");
@@ -131,6 +147,132 @@ public sealed class ContactService(
             .ToList();
 
         return ServiceResult<IReadOnlyList<ContactListItem>>.Success(items, string.Empty);
+    }
+
+    public async Task<ServiceResult<IReadOnlyList<PeopleListItemDto>>> ListPeopleAsync(PeopleFilter filter)
+    {
+        var scope = access.GetDataReadScope("people");
+        if (!scope.Ok)
+            return ServiceResult<IReadOnlyList<PeopleListItemDto>>.Fail(scope.Message);
+        var kinds = filter.Kinds ?? new HashSet<PersonKind>();
+        var limit = filter.Limit is > 0 and <= 1000 ? filter.Limit : 200;
+
+        await using var uow = uowFactory.Create();
+        var contacts = await uow.Contacts.SearchAsync(filter.SearchText, scope.Value);
+        if (user.Role != Roles.TenantAdmin)
+            filter = filter with { AssignedStaffId = null };
+        else if (filter.AssignedStaffId is { } assignedId)
+            contacts = contacts.Where(contact => contact.AssignedStaffId == assignedId).ToList();
+
+        var allLeads = await uow.Leads.ListAsync(null, filter.SearchText, scope: scope.Value);
+        var allDeals = await uow.Deals.ListAsync(
+            scope.Value.Kind == TenantDataScopeKind.Agent ? scope.Value.StaffId : null,
+            scope.Value.Kind == TenantDataScopeKind.Branch ? scope.Value.BranchId : null);
+        var parcels = await uow.Parcels.ListAsync();
+        if (scope.Value.Kind == TenantDataScopeKind.Branch)
+            parcels = parcels.Where(parcel => parcel.BranchId == scope.Value.BranchId).ToList();
+
+        var staffIds = contacts.Where(contact => contact.AssignedStaffId is not null)
+            .Select(contact => contact.AssignedStaffId!.Value)
+            .Concat(allLeads.Where(lead => lead.AssignedStaffId is not null).Select(lead => lead.AssignedStaffId!.Value))
+            .Distinct().ToArray();
+        var staff = await uow.Staff.ListByIdsAsync(staffIds);
+        var staffNames = staff.ToDictionary(member => member.Id, member => member.FullName);
+
+        var ownerParcelCounts = parcels
+            .GroupBy(parcel => parcel.OwnerId)
+            .ToDictionary(group => group.Key, group => group.Count());
+        var owners = await uow.Owners.ListAsync();
+        if (scope.Value.Kind == TenantDataScopeKind.Branch)
+        {
+            var ownerIds = parcels.Select(parcel => parcel.OwnerId).ToHashSet();
+            owners = owners.Where(owner => ownerIds.Contains(owner.Id)).ToList();
+        }
+
+        var result = new List<PeopleListItemDto>();
+        if (kinds.Count == 0 || kinds.Contains(PersonKind.Customer)
+            || kinds.Contains(PersonKind.Client) || kinds.Contains(PersonKind.Landowner))
+        {
+            foreach (var contact in contacts)
+            {
+                var kind = contact.Type switch
+                {
+                    ContactType.Client => PersonKind.Client,
+                    ContactType.Landowner => PersonKind.Landowner,
+                    _ => PersonKind.Customer
+                };
+                if (kinds.Count > 0 && !kinds.Contains(kind))
+                    continue;
+
+                var matchingOwner = kind == PersonKind.Landowner
+                    ? owners.FirstOrDefault(owner => NormalizedDigits(owner.Phone) is { } ownerPhone
+                        && ownerPhone.Length > 0
+                        && ownerPhone == NormalizedDigits(contact.PhoneNormalized))
+                    : null;
+                var openLeadCount = allLeads.Count(lead =>
+                    lead.ContactId == contact.Id && lead.Stage is not LeadStage.Lost and not LeadStage.Closed);
+                var contactDeals = allDeals.Where(deal => deal.ContactId == contact.Id).ToList();
+                var balance = kind == PersonKind.Client
+                    ? contactDeals.Where(deal => deal.Status is DealStatus.Current or DealStatus.Overdue or DealStatus.FullyPaid)
+                        .Sum(deal => Math.Max(0, deal.Price - deal.Discount
+                            - deal.Payments.Where(payment => payment.Status == PaymentStatus.Confirmed).Sum(payment => payment.Amount)))
+                    : (decimal?)null;
+                var parcelCount = matchingOwner is null
+                    ? 0
+                    : ownerParcelCounts.TryGetValue(matchingOwner.Id, out var count) ? count : 0;
+                var hasOverdueDeal = contactDeals.Any(deal => deal.Status == DealStatus.Overdue);
+                result.Add(new PeopleListItemDto(
+                    kind, contact.Id, contact.FullName, contact.Phone, contact.Email,
+                    contact.AssignedStaffId is { } staffId && staffNames.TryGetValue(staffId, out var agentName)
+                        ? agentName : null,
+                    openLeadCount, contactDeals.Count, balance, parcelCount,
+                    kind == PersonKind.Landowner ? matchingOwner?.Id : null,
+                    hasOverdueDeal));
+            }
+        }
+
+        if (kinds.Count == 0 || kinds.Contains(PersonKind.Landowner))
+        {
+            foreach (var owner in owners)
+            {
+                var ownerPhone = NormalizedDigits(owner.Phone);
+                var alreadyMerged = ownerPhone.Length > 0 && contacts.Any(contact =>
+                    contact.Type == ContactType.Landowner
+                    && NormalizedDigits(contact.PhoneNormalized) == ownerPhone);
+                if (alreadyMerged)
+                    continue;
+                result.Add(new PeopleListItemDto(
+                    PersonKind.Landowner, owner.Id, owner.Name, owner.Phone, owner.Email, null,
+                    0, 0, null, ownerParcelCounts.TryGetValue(owner.Id, out var count) ? count : 0, owner.Id));
+            }
+        }
+
+        var search = filter.SearchText?.Trim();
+        if (!string.IsNullOrEmpty(search))
+        {
+            var normalizedSearch = NormalizedDigits(search);
+            result = result.Where(person =>
+                person.Name.Contains(search, StringComparison.OrdinalIgnoreCase)
+                || (!string.IsNullOrEmpty(person.Phone)
+                    && (!string.IsNullOrEmpty(normalizedSearch)
+                        ? NormalizedDigits(person.Phone).Contains(normalizedSearch, StringComparison.Ordinal)
+                        : person.Phone!.Contains(search, StringComparison.OrdinalIgnoreCase)))
+                || (!string.IsNullOrEmpty(person.Email) && person.Email!.Contains(search, StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+        }
+
+        return ServiceResult<IReadOnlyList<PeopleListItemDto>>.Success(
+            result.OrderBy(person => person.Name).Take(limit).ToList());
+    }
+
+    private static string NormalizedDigits(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+        var digits = new string(value.Where(char.IsDigit).ToArray());
+        if (digits.StartsWith("63")) digits = "0" + digits[2..];
+        else if (digits.Length == 10 && digits[0] == '9') digits = "0" + digits;
+        return digits;
     }
 
     public async Task<ServiceResult<ContactReferralOptions>> ListReferralOptionsAsync()

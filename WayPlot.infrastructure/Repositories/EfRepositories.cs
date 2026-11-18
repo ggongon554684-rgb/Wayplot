@@ -1,6 +1,6 @@
-﻿using System.Globalization;
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using WayPlot.domain.Common;
+using WayPlot.domain.Contracts;
 using WayPlot.domain.Entities;
 using WayPlot.domain.Repositories;
 using WayPlot.domain.Services.DataCollection;
@@ -38,6 +38,44 @@ internal sealed class ParcelRepository(TenantDbContext db) : IParcelRepository
     }
 
     public void Add(Parcel parcel) => db.Parcels.Add(parcel);
+
+    public void Touch(Parcel parcel) =>
+        db.Entry(parcel).Property(p => p.Version).IsModified = true;
+}
+
+internal sealed class ParcelPhotoRepository(TenantDbContext db) : IParcelPhotoRepository
+{
+    public Task<int> CountByParcelAsync(Guid parcelId, CancellationToken cancellationToken = default) =>
+        db.ParcelPhotos.CountAsync(photo => photo.ParcelId == parcelId, cancellationToken);
+
+    public async Task<IReadOnlyList<ParcelPhotoThumbnailDto>> ListByParcelAsync(
+        Guid parcelId,
+        CancellationToken cancellationToken = default) =>
+        await (from photo in db.ParcelPhotos.AsNoTracking()
+               join data in db.ParcelPhotoData.AsNoTracking() on photo.Id equals data.ParcelPhotoId
+               where photo.ParcelId == parcelId
+               orderby photo.CreatedAtUtc, photo.Id
+               select new ParcelPhotoThumbnailDto(photo.Id, photo.FileName, data.SizeBytes, data.ThumbnailBytes))
+            .ToListAsync(cancellationToken);
+
+    public Task<ParcelPhoto?> GetAsync(Guid photoId, CancellationToken cancellationToken = default) =>
+        db.ParcelPhotos.FirstOrDefaultAsync(photo => photo.Id == photoId, cancellationToken);
+
+    public Task<ParcelPhotoImageDto?> GetImageAsync(Guid photoId, CancellationToken cancellationToken = default) =>
+        (from photo in db.ParcelPhotos.AsNoTracking()
+         join data in db.ParcelPhotoData.AsNoTracking() on photo.Id equals data.ParcelPhotoId
+         where photo.Id == photoId
+         select new ParcelPhotoImageDto(photo.FileName, data.ContentType, data.ImageBytes))
+        .FirstOrDefaultAsync(cancellationToken);
+
+    public void Add(ParcelPhoto photo) => db.ParcelPhotos.Add(photo);
+
+    public void AddData(ParcelPhotoData data) => db.ParcelPhotoData.Add(data);
+
+    public void Remove(ParcelPhoto photo) => db.ParcelPhotos.Remove(photo);
+
+    public Task<int> DeleteDataAsync(Guid photoId, CancellationToken cancellationToken = default) =>
+        db.ParcelPhotoData.Where(data => data.ParcelPhotoId == photoId).ExecuteDeleteAsync(cancellationToken);
 }
 
 internal sealed class ContactRepository(TenantDbContext db) : IContactRepository
@@ -94,9 +132,13 @@ internal sealed class ContactRepository(TenantDbContext db) : IContactRepository
 
             // Three or more digits is treated as a phone search too, so "0917 123" finds "09171234567".
             if (digits.Length >= 3)
+            {
+                var normalizedPhone = PhoneNormalizer.Normalize(term);
+                var phoneTerm = normalizedPhone ?? digits;
                 query = query.Where(c => c.FullName.Contains(term)
                                       || (c.Email != null && c.Email.Contains(term))
-                                      || (c.PhoneNormalized != null && c.PhoneNormalized.Contains(digits)));
+                                      || (c.PhoneNormalized != null && c.PhoneNormalized.Contains(phoneTerm)));
+            }
             else
                 query = query.Where(c => c.FullName.Contains(term)
                                       || (c.Email != null && c.Email.Contains(term)));
@@ -122,6 +164,16 @@ internal sealed class ContactRepository(TenantDbContext db) : IContactRepository
 
 internal sealed class StaffRepository(TenantDbContext db) : IStaffRepository
 {
+    public async Task<IReadOnlyList<Staff>> ListAsync(TenantDataScope? scope = null)
+    {
+        var query = db.Staffs.AsNoTracking();
+        if (scope?.Kind == TenantDataScopeKind.Branch && scope.Value.BranchId is { } branchId)
+            query = query.Where(staff => staff.BranchId == branchId);
+        else if (scope?.Kind == TenantDataScopeKind.Agent)
+            return Array.Empty<Staff>();
+        return await query.OrderBy(staff => staff.FullName).ToListAsync();
+    }
+
     public async Task<IReadOnlyList<Staff>> ListActiveAgentsAsync() =>
         await db.Staffs.AsNoTracking()
             .Where(staff => staff.IsActive && staff.Role == Roles.Agent)
@@ -313,6 +365,13 @@ internal sealed class LeadRepository(TenantDbContext db) : ILeadRepository
     public Task<bool> AnotherLeadInNegotiationAsync(Guid parcelId, Guid exceptLeadId) =>
         db.Leads.AnyAsync(l => l.ParcelId == parcelId && l.Id != exceptLeadId && l.Stage == LeadStage.Negotiation);
 
+    public async Task<IReadOnlyList<Lead>> ListByContactAsync(Guid contactId, TenantDataScope? scope = null) =>
+        await ApplyScope(db.Leads.AsNoTracking()
+            .Include(l => l.Contact).Include(l => l.Parcel)
+            .Where(l => l.ContactId == contactId), scope)
+            .OrderByDescending(l => l.LastActivityAtUtc)
+            .ToListAsync();
+
     public void Add(Lead lead) => db.Leads.Add(lead);
 
     private static IQueryable<Lead> ApplyScope(IQueryable<Lead> query, TenantDataScope? scope) =>
@@ -425,13 +484,50 @@ internal sealed class DealRepository(TenantDbContext db) : IDealRepository
     public Task<bool> ActiveForParcelExistsAsync(Guid parcelId) =>
         db.Deals.AnyAsync(d => d.ParcelId == parcelId && d.IsActive);
 
+    public Task<Deal?> GetActiveForParcelAsync(Guid parcelId) =>
+        db.Deals
+            .Include(deal => deal.Lead).ThenInclude(lead => lead.Contact)
+            .Include(deal => deal.Lead).ThenInclude(lead => lead.Parcel)
+            .Include(deal => deal.Payments)
+            .FirstOrDefaultAsync(deal => deal.ParcelId == parcelId && deal.IsActive);
+
+    public Task<bool> HasOtherLiveDealForContactAsync(Guid contactId, Guid exceptDealId) =>
+        db.Deals.AnyAsync(deal => deal.ContactId == contactId && deal.Id != exceptDealId
+            && (deal.Status == DealStatus.Current
+                || deal.Status == DealStatus.Overdue
+                || deal.Status == DealStatus.FullyPaid));
+
     public async Task<IReadOnlyList<DealStatus>> ListStatusesByParcelAsync(Guid parcelId) =>
         await db.Deals.IgnoreQueryFilters()
             .Where(deal => deal.ParcelId == parcelId)
             .Select(deal => deal.Status)
             .ToListAsync();
 
+    public async Task<IReadOnlyList<Deal>> ListByLeadAsync(Guid leadId) =>
+        await db.Deals.AsNoTracking()
+            .Include(deal => deal.Lead).ThenInclude(lead => lead.Contact)
+            .Include(deal => deal.Lead).ThenInclude(lead => lead.Parcel)
+            .Include(deal => deal.Payments)
+            .Include(deal => deal.Parcel)
+            .Where(deal => deal.LeadId == leadId)
+            .OrderByDescending(deal => deal.CreatedAtUtc)
+            .ToListAsync();
+
+    public async Task<IReadOnlyList<Deal>> ListByContactAsync(Guid contactId) =>
+        await db.Deals.AsNoTracking()
+            .Include(deal => deal.Lead).ThenInclude(lead => lead.Contact)
+            .Include(deal => deal.Lead).ThenInclude(lead => lead.Parcel)
+            .Include(deal => deal.Payments)
+            .Include(deal => deal.Parcel)
+            .Where(deal => deal.ContactId == contactId)
+            .OrderByDescending(deal => deal.ConfirmedAtUtc ?? deal.CreatedAtUtc)
+            .ThenByDescending(deal => deal.Id)
+            .ToListAsync();
+
     public void Add(Deal deal) => db.Deals.Add(deal);
+
+    public void Touch(Deal deal) =>
+        db.Entry(deal).Property(item => item.Version).IsModified = true;
 }
 
 internal sealed class PaymentRepository(TenantDbContext db) : IPaymentRepository
@@ -450,20 +546,8 @@ internal sealed class PaymentRepository(TenantDbContext db) : IPaymentRepository
             .Take(500)
             .ToListAsync();
 
-    public async Task<int> MaxReceiptSequenceAsync(string prefix)
-    {
-        var suffixes = await db.Payments.IgnoreQueryFilters().AsNoTracking()
-            .Where(payment => payment.ReceiptNo.StartsWith(prefix))
-            .Select(payment => payment.ReceiptNo.Substring(prefix.Length))
-            .ToListAsync();
-
-        return suffixes
-            .Select(suffix => int.TryParse(suffix, NumberStyles.None, CultureInfo.InvariantCulture, out var value)
-                ? value
-                : 0)
-            .DefaultIfEmpty()
-            .Max();
-    }
+    public Task<bool> ReceiptExistsAsync(string receiptNo) =>
+        db.Payments.AnyAsync(payment => payment.ReceiptNo == receiptNo);
 
     public void Add(Payment payment) => db.Payments.Add(payment);
 }

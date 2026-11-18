@@ -41,7 +41,7 @@ public sealed class CommissionsPresenter(
             ? "Select a payout first."
             : payout.Status != CommissionStatus.Approved
                 ? "Only an approved payout can be marked Paid."
-                : payout.ApprovalBlockedReason;
+                : payout.PaidBlockedReason;
 
         return new CommissionActionStates(
             new CommissionActionAvailability(isAdmin, isAdmin, null),

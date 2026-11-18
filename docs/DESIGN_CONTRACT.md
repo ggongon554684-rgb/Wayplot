@@ -1,0 +1,98 @@
+# WayPlot Design Contract
+
+## Conventions
+
+- Services return `ServiceResult<T>` and expose success/failure through `Ok`, `Message`, and `Value`.
+- `TenantAccessPolicy` performs role and scope checks. Super Admin is refused tenant access; Branch Manager reads are branch-scoped and mutations are refused.
+- Repository entities are tracked for mutations and short-lived unit-of-work contexts are disposed after operations. Mutations use `ExecuteInTransactionAsync` and the entity `Version` concurrency token.
+- Existing domain events such as `LeadCaptured`, `LeadStageChanged`, `DealChanged`, `PaymentConfirmed`, and `PayoutChanged` remain the change-event surface.
+- Later screens use the domain DTOs and service methods below instead of entities.
+
+## B3 methods and rules
+
+| Area | Method | Caller | Rule |
+|---|---|---|---|
+| Deal summary | `DealService.GetDealSummaryAsync(Guid)` | Scoped roles | Agent sees only own deals; Admin/Branch scope applies. |
+| Deal summaries | `DealService.GetDealSummariesForContactAsync(Guid)` | Scoped roles | Newest deal cards for one contact; Agent sees own deals only. |
+| Status refresh | `DealService.RefreshDealStatusesAsync()` | Any role | Sets confirmed nonterminal deals `Current` or `Overdue` as of `TimeProvider`; Version conflicts skip. |
+| People | `ContactService.ListPeopleAsync(PeopleFilter)` | Tenant-readable roles | Contacts follow Run E; owners follow parcel visibility; merge only by normalized digits. |
+| Add lead | `LeadService.AddLeadForContactAsync(Guid, Guid, string?, Guid?)` | Agent/Admin | Available parcel, one open lead per lot, Agent owns assignment; Admin uses supplied/contact agent or refuses. |
+| Switch lot | `LeadService.SwitchLotAsync(Guid, Guid, string?)` | Agent/Admin | Eligible open lead only; creates new lead and loses old lead in one transaction. |
+| Pipeline | `LeadService.GetPipelineBoardAsync(PipelineFilter)` | Scoped roles | Provider supplies stage order; Closed/Lost default to last 30 days. |
+| Allowed moves | `LeadService.GetAllowedMovesAsync(Guid)` | Scoped roles | Reproduces existing stage rules; Closed remains the deal request flow. |
+| Timeline | `LeadService.GetLeadTimelineAsync(Guid)` | Scoped roles | Merges history, interactions and existing deal fields, newest first and local time. |
+| Reassignment | `LeadService.ReassignLeadAsync`, `ReassignContactAsync`, `ReassignAllFromAgentAsync` | Tenant Admin | Active Agents only; Tier C cross-branch moves refuse; history/deals/payouts are preserved. |
+| Staff | `StaffService.ListStaffAsync()` | Admin/BranchManager | Admin sees tenant staff; Branch Manager sees the own branch. |
+
+## B2 and B2b existing service surface
+
+| Area | Methods | Caller/rule |
+|---|---|---|
+| Deals | `DealService.ListAsync`, `ListCandidatesAsync`, `RequestClosedAsync`, `ConfirmClosedAsync`, `ReturnRequestAsync` | Admin confirms/returns Closed; Agents request own eligible leads. |
+| Termination | `DealService.GetTerminationSummaryAsync`, `CancelDealAsync`, `DefaultDealAsync` | Tenant Admin only; confirmed Current/Overdue deals; pending payments and invalid money outcomes refuse. |
+| Payments | `DealService.ListPaymentsAsync`, `RecordPaymentAsync`, `ConfirmPaymentAsync`, `ReturnPaymentAsync` | Agent records own deal payment; Tenant Admin confirms/returns; Admin may record any accessible deal. |
+| Payouts | `CommissionService.GetRulesAsync`, `SaveRulesAsync`, `ListAsync`, `ApproveAsync`, `MarkPaidAsync` | Admin manages and pays; Agents see own payouts; payable timing controls Paid. |
+
+## Schedule and overdue decisions
+
+- Obligation order: reservation fee, down payment, installments or one full-payment remainder.
+- Installment 1 is due on the next DueDay strictly after confirmation; later installments use the same due day and clamp to month length.
+- The last installment takes the remainder so the obligation total equals net price.
+- Confirmed payments are allocated to obligations in order. Pending payments are informational only.
+- A due obligation before today's local date is overdue while not fully covered. Late penalties are not calculated.
+- `DealType` is inferred only from current parcel status: Sold = Sale, Leased = Lease.
+
+## Screen mapping
+
+- Contacts tab: `ListPeopleAsync`, contact deal cards from `GetDealSummariesForContactAsync`.
+- Add/Switch lot: `AddLeadForContactAsync`, `SwitchLotAsync`.
+- Pipeline and timeline: `GetPipelineBoardAsync`, `GetAllowedMovesAsync`, `GetLeadTimelineAsync`.
+- Admin team tools: `ListStaffAsync` and the three reassignment methods.
+
+## Worked deal summary examples
+
+### 1. Current installment deal
+
+As-of date: **2026-11-18**. Confirmation date: **2026-11-01**. Terms: net price `₱300,000.00`, reservation `₱10,000.00`, down payment `₱40,000.00`, 12 installments, and `DueDay = 31`.
+
+- The installment amount is fixed at `₱20,833.33` for the first 11 installments, except the last installment takes the remainder.
+- Last installment: `₱250,000.00 - (11 × ₱20,833.33) = ₱20,833.37`.
+- Confirmed paid: `₱50,000.00`.
+- Balance: `₱300,000.00 - ₱50,000.00 = ₱250,000.00`.
+- Percent paid: `₱50,000.00 / ₱300,000.00 × 100 = 16.67%`.
+- The first installment is due strictly after confirmation on **2026-11-30**, then monthly on clamped DueDay 31.
+- Next due date: **2026-11-30**. Next due amount: **₱20,833.33**.
+- Overdue amount: `₱0.00`; 0 days overdue.
+- Installments paid: 0 of 12.
+
+Code walk: `DealScheduleBuilder` emits reservation, down payment, and 12 installment obligations. The confirmed payments cover reservation and down payment first. No obligation is due before the fixed as-of date, so the next uncovered obligation is the November 30 installment.
+
+### 2. Overdue installment deal
+
+As-of date: **2026-11-18**. Confirmation date: **2026-01-01**. Terms: net price `₱240,000.00`, no reservation fee, down payment `₱20,000.00`, 10 installments of `₱22,000.00`, and `DueDay = 31`.
+
+- Confirmed paid: `₱20,000.00`.
+- Balance: `₱240,000.00 - ₱20,000.00 = ₱220,000.00`.
+- Percent paid: `₱20,000.00 / ₱240,000.00 × 100 = 8.33%`.
+- The installment obligations are due: Jan 31, Feb 28, Mar 31, Apr 30, May 31, Jun 30, Jul 31, Aug 31, Sep 30, and Oct 31.
+- Next due date: **2026-01-31**. Next due amount: **₱22,000.00**.
+- All 10 installments are uncovered and due before 2026-11-18.
+- Overdue amount: `10 × ₱22,000.00 = ₱220,000.00`.
+- Days overdue: 291 days from 2026-01-31 to 2026-11-18.
+- Installments paid: 0 of 10.
+
+Code walk: `DealScheduleBuilder` emits the down payment on January 1 and the 10 clamped monthly installments beginning January 31. Confirmed payment fully covers the down payment. The summary marks every earlier uncovered installment as overdue and uses January 31 as the earliest due date.
+
+### 3. Fully paid deal
+
+As-of date: **2026-11-18**. Confirmation date: **2026-09-01**. Terms: net price `₱180,000.00`, reservation `₱5,000.00`, down payment `₱25,000.00`, full-payment remainder `₱150,000.00`, and `IsInstallment = false`.
+
+- Confirmed paid: `₱180,000.00`.
+- Balance: `₱180,000.00 - ₱180,000.00 = ₱0.00`.
+- Percent paid: `100.00%`.
+- The three obligations total `₱5,000.00 + ₱25,000.00 + ₱150,000.00 = ₱180,000.00`.
+- Next due date: none. Next due amount: none.
+- Overdue amount: `₱0.00`; 0 days overdue.
+- Installments paid: 0 of 0.
+
+Code walk: `DealScheduleBuilder` emits reservation, down payment, and one full-payment remainder obligation on 2026-09-01. Confirmed payments cover all obligations in order. Balance is zero, PercentPaid is 100, and no next obligation remains.

@@ -1,5 +1,6 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using WayPlot.domain.Common;
+using WayPlot.domain.Contracts;
 using WayPlot.domain.Events;
 using WayPlot.domain.Interfaces;
 using WayPlot.domain.Repositories;
@@ -21,6 +22,8 @@ public static class TenantClientExtensions
     public static IServiceCollection AddWayPlotTenantClient(this IServiceCollection services, string serverName)
     {
         services.AddSingleton<IClock, SystemClock>();
+        services.AddSingleton<TimeProvider>(TimeProvider.System);
+        services.AddSingleton<IPipelineStageProvider, DefaultPipelineStageProvider>();
         services.AddSingleton<SessionContext>();
         services.AddSingleton<ICurrentUser>(sp => sp.GetRequiredService<SessionContext>());
         services.AddSingleton<TenantAccessPolicy>();
@@ -38,10 +41,12 @@ public static class TenantClientExtensions
         services.AddSingleton<ContactService>();
         services.AddSingleton<ContactImportService>();
         services.AddSingleton<ParcelService>();
+        services.AddSingleton<ParcelPhotoService>();
         services.AddSingleton<LeadService>();
         services.AddSingleton<InteractionService>();
         services.AddSingleton<CommissionService>();
         services.AddSingleton<DealService>();
+        services.AddSingleton<StaffService>();
         services.AddSingleton<TenantSeeder>();
         return services;
     }

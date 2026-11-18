@@ -151,6 +151,10 @@ public sealed class ContactImportService(
             ? await uow.Parcels.ListAsync()
             : Array.Empty<Parcel>();
         var parcelsByLabel = parcels.ToDictionary(parcel => parcel.Label, StringComparer.OrdinalIgnoreCase);
+        var typeIndex = parsed.Columns.ToList().FindIndex(column =>
+            column.Header.Equals("Type", StringComparison.OrdinalIgnoreCase)
+            || column.Header.Equals("ContactType", StringComparison.OrdinalIgnoreCase)
+            || column.Header.Equals("Kind", StringComparison.OrdinalIgnoreCase));
 
         var rows = new List<PreparedRow>(parsed.Rows.Count);
         for (var index = 0; index < parsed.Rows.Count; index++)
@@ -179,6 +183,15 @@ public sealed class ContactImportService(
                 false,
                 null,
                 fields.ToArray());
+            if (typeIndex >= 0)
+            {
+                var rawType = OptionalColumn(fields, typeIndex);
+                if (string.Equals(rawType?.Trim(), "Client", StringComparison.OrdinalIgnoreCase))
+                {
+                    rows.Add(InvalidPrepared(display, "Client status is set automatically when a deal is confirmed."));
+                    continue;
+                }
+            }
 
             if (fields.Length > parsed.Columns.Count)
             {

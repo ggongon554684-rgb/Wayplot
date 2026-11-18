@@ -1,5 +1,6 @@
 ﻿using WayPlot.domain.Entities;
 using WayPlot.domain.Common;
+using WayPlot.domain.Contracts;
 using WayPlot.domain.Services.DataCollection;
 
 namespace WayPlot.domain.Repositories;
@@ -23,6 +24,19 @@ public interface IParcelRepository
     /// <summary>Checks labels across active and archived parcels, optionally excluding the edited parcel.</summary>
     Task<bool> LabelExistsAsync(string label, Guid? exceptParcelId = null);
     void Add(Parcel parcel);
+    void Touch(Parcel parcel);
+}
+
+public interface IParcelPhotoRepository
+{
+    Task<int> CountByParcelAsync(Guid parcelId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<ParcelPhotoThumbnailDto>> ListByParcelAsync(Guid parcelId, CancellationToken cancellationToken = default);
+    Task<ParcelPhoto?> GetAsync(Guid photoId, CancellationToken cancellationToken = default);
+    Task<ParcelPhotoImageDto?> GetImageAsync(Guid photoId, CancellationToken cancellationToken = default);
+    void Add(ParcelPhoto photo);
+    void AddData(ParcelPhotoData data);
+    void Remove(ParcelPhoto photo);
+    Task<int> DeleteDataAsync(Guid photoId, CancellationToken cancellationToken = default);
 }
 
 public interface IContactRepository
@@ -41,6 +55,7 @@ public interface IContactRepository
 
 public interface IStaffRepository
 {
+    Task<IReadOnlyList<Staff>> ListAsync(TenantDataScope? scope = null);
     /// <summary>Active Agent staff, without tracking.</summary>
     Task<IReadOnlyList<Staff>> ListActiveAgentsAsync();
     Task<bool> IsActiveAgentAsync(Guid staffId);
@@ -97,6 +112,7 @@ public interface ILeadRepository
     Task<bool> ActiveLeadExistsAsync(Guid contactId, Guid parcelId);
     /// <summary>True when a different lead on the parcel is in Negotiation.</summary>
     Task<bool> AnotherLeadInNegotiationAsync(Guid parcelId, Guid exceptLeadId);
+    Task<IReadOnlyList<Lead>> ListByContactAsync(Guid contactId, TenantDataScope? scope = null);
     void Add(Lead lead);
 }
 
@@ -126,8 +142,14 @@ public interface IDealRepository
     Task<IReadOnlyList<Deal>> ListFullyPaidMissingCommissionAsync();
     /// <summary>True when a deal already holds the parcel.</summary>
     Task<bool> ActiveForParcelExistsAsync(Guid parcelId);
+    /// <summary>The active deal holding a parcel, if one exists.</summary>
+    Task<Deal?> GetActiveForParcelAsync(Guid parcelId);
+    Task<bool> HasOtherLiveDealForContactAsync(Guid contactId, Guid exceptDealId);
     Task<IReadOnlyList<DealStatus>> ListStatusesByParcelAsync(Guid parcelId);
+    Task<IReadOnlyList<Deal>> ListByLeadAsync(Guid leadId);
+    Task<IReadOnlyList<Deal>> ListByContactAsync(Guid contactId);
     void Add(Deal deal);
+    void Touch(Deal deal);
 }
 
 public interface IPaymentRepository
@@ -136,7 +158,6 @@ public interface IPaymentRepository
     Task<Payment?> GetAsync(Guid id);
     /// <summary>Payments for one deal, newest first, without tracking.</summary>
     Task<IReadOnlyList<Payment>> ListByDealAsync(Guid dealId);
-    /// <summary>Largest numeric receipt suffix for a prefix, or zero when none exists.</summary>
-    Task<int> MaxReceiptSequenceAsync(string prefix);
+    Task<bool> ReceiptExistsAsync(string receiptNo);
     void Add(Payment payment);
 }

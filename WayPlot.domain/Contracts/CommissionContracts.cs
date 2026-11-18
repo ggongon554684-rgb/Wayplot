@@ -44,6 +44,7 @@ public sealed record PayoutListItem(
     bool CanApprove,
     string? ApprovalBlockedReason,
     bool CanMarkPaid,
+    string? PaidBlockedReason,
     Guid? BranchId);
 
 public sealed record ReferralChoice(Guid Id, string Display)

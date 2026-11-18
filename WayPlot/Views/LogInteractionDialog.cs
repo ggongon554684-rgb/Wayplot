@@ -151,6 +151,7 @@ public partial class LogInteractionDialog : Form
             InteractionLogKinds.Call => InteractionChannel.Call,
             InteractionLogKinds.Text => InteractionChannel.Sms,
             InteractionLogKinds.Viewing => InteractionChannel.Viewing,
+            InteractionLogKinds.Email => InteractionChannel.Email,
             InteractionLogKinds.Note => InteractionChannel.Note,
             _ => (InteractionChannel?)null
         };

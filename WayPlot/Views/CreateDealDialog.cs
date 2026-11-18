@@ -17,8 +17,13 @@ public partial class CreateDealDialog : Form
         ApplyTheme();
 
         nudPrice.Maximum = 9999999999999999.99m;
+        nudDiscount.Maximum = 9999999999999999.99m;
+        nudReservationFee.Maximum = 9999999999999999.99m;
         nudDownPayment.Maximum = 9999999999999999.99m;
         cboLead.SelectedIndexChanged += (_, _) => SelectCandidate();
+        cboPaymentPlan.SelectedIndexChanged += (_, _) => UpdatePlanFields();
+        cboPaymentPlan.Items.AddRange(["Full payment", "Installment plan"]);
+        cboPaymentPlan.SelectedIndex = 0;
         btnSave.Click += async (_, _) => await SaveAsync();
     }
 
@@ -54,14 +59,27 @@ public partial class CreateDealDialog : Form
         lblLead.ForeColor = Theme.Muted;
         lblPrice.Font = Theme.Small;
         lblPrice.ForeColor = Theme.Muted;
-        lblDownPayment.Font = Theme.Small;
-        lblDownPayment.ForeColor = Theme.Muted;
+        lblDiscount.Font = Theme.Small;
+        lblDiscount.ForeColor = Theme.Muted;
         lblReservation.Font = Theme.Small;
         lblReservation.ForeColor = Theme.Muted;
+        lblDownPayment.Font = Theme.Small;
+        lblDownPayment.ForeColor = Theme.Muted;
+        lblPaymentPlan.Font = Theme.Small;
+        lblPaymentPlan.ForeColor = Theme.Muted;
+        lblInstallmentCount.Font = Theme.Small;
+        lblInstallmentCount.ForeColor = Theme.Muted;
+        lblDueDay.Font = Theme.Small;
+        lblDueDay.ForeColor = Theme.Muted;
         lblError.ForeColor = ColorTranslator.FromHtml("#8F2A1B");
         cboLead.Font = Theme.Body;
+        cboPaymentPlan.Font = Theme.Body;
         nudPrice.Font = Theme.Body;
+        nudDiscount.Font = Theme.Body;
+        nudReservationFee.Font = Theme.Body;
         nudDownPayment.Font = Theme.Body;
+        nudInstallmentCount.Font = Theme.Body;
+        nudDueDay.Font = Theme.Body;
         ButtonStyle.Apply(btnSave, primary: true);
         ButtonStyle.Apply(btnCancel, primary: false);
     }
@@ -72,10 +90,17 @@ public partial class CreateDealDialog : Form
         var candidate = _candidates[cboLead.SelectedIndex];
         var defaultPrice = candidate.OfferAmount is > 0 ? candidate.OfferAmount.Value : candidate.ParcelPrice;
         nudPrice.Value = Math.Clamp(defaultPrice, nudPrice.Minimum, nudPrice.Maximum);
+        nudDiscount.Value = 0;
+        nudReservationFee.Value = Math.Clamp(candidate.ReservationFee, nudReservationFee.Minimum, nudReservationFee.Maximum);
         nudDownPayment.Value = 0;
-        lblReservation.Text = candidate.ReservationFee == 0
-            ? "No reservation fee is set for this parcel."
-            : $"Reservation fee: ₱{candidate.ReservationFee.ToString("N2", CultureInfo.InvariantCulture)}";
+        UpdatePlanFields();
+    }
+
+    private void UpdatePlanFields()
+    {
+        var installment = cboPaymentPlan.SelectedIndex == 1;
+        lblInstallmentCount.Visible = nudInstallmentCount.Visible = installment;
+        lblDueDay.Visible = nudDueDay.Visible = installment;
     }
 
     private async Task SaveAsync()
@@ -88,7 +113,15 @@ public partial class CreateDealDialog : Form
         try
         {
             var candidate = _candidates[cboLead.SelectedIndex];
-            var result = await SaveHandler(new CreateDealRequest(candidate.LeadId, nudPrice.Value, nudDownPayment.Value));
+            var result = await SaveHandler(new CreateDealRequest(
+                candidate.LeadId,
+                nudPrice.Value,
+                nudDiscount.Value,
+                nudReservationFee.Value,
+                nudDownPayment.Value,
+                cboPaymentPlan.SelectedIndex == 1,
+                cboPaymentPlan.SelectedIndex == 1 ? decimal.ToInt32(nudInstallmentCount.Value) : 0,
+                cboPaymentPlan.SelectedIndex == 1 ? decimal.ToInt32(nudDueDay.Value) : 1));
             if (IsDisposed) return;
             if (!result.Ok)
             {

@@ -20,16 +20,36 @@ public partial class ParcelMapView : UserControl, IParcelMapView
     ];
 
     private readonly List<Label> _factValues = [];
+    private readonly List<ParcelPhotoThumbnailDto> _parcelPhotos = [];
     private IParcelMapControl _map = null!;
     private ParcelMapPresenter? _presenter;
     private ParcelDto? _currentParcel;
     private Guid? _currentParcelId;
     private readonly ToolTip _actionToolTip = new();
+    private readonly ToolTip _photoToolTip = new();
+    private CancellationTokenSource? _photoLoadCancellation;
+    private Guid? _selectedPhotoId;
+    private bool _photoOperationInProgress;
     private int _preferredInspectorWidth = 356;
     private bool _settingsLoaded;
     private bool _settingsWarningShown;
     private string _mapMode = "none";
     private int _modeVertexCount;
+    private bool _savingGeometry;
+    private Guid? _pendingParcelId;
+
+    [Browsable(false)]
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public Guid? PendingParcelId
+    {
+        get => _pendingParcelId;
+        set
+        {
+            _pendingParcelId = value;
+            if (IsHandleCreated && value is { } id && _presenter is not null)
+                _ = SelectPendingParcelAsync(id);
+        }
+    }
 
     public ParcelMapView()
     {
@@ -39,11 +59,11 @@ public partial class ParcelMapView : UserControl, IParcelMapView
         ApplyTheme();
         layoutMain.Panel2Collapsed = true;
 
+        transientStatusTimer.Tick += (_, _) => ClearTransientStatus();
         listLeads.Resize += (_, _) => FitLeadColumns();
         listLeads.ItemActivate += async (_, _) => await OpenLeadFileAsync();
         btnAttachLead.Click += (_, _) => AttachLead();
-        btnNewParcel.Click += (_, _) => StartDraw("polygon");
-        btnPlaceMarker.Click += (_, _) => StartDraw("marker");
+        btnNewParcel.Click += (_, _) => StartDraw();
         btnUndo.Click += (_, _) => _map.UndoVertex();
         btnFinish.Click += (_, _) => _map.FinishMode();
         btnCancel.Click += (_, _) => _map.CancelMode();
@@ -52,6 +72,8 @@ public partial class ParcelMapView : UserControl, IParcelMapView
         btnChangePrice.Click += async (_, _) => await ChangePriceAsync();
         btnReassign.Click += async (_, _) => await ReassignAsync();
         btnArchive.Click += async (_, _) => await ArchiveAsync();
+        btnAddPhotos.Click += async (_, _) => await AddPhotosAsync();
+        btnRemovePhoto.Click += async (_, _) => await RemovePhotoAsync();
         btnClosePanel.Click += async (_, _) =>
         {
             if (_presenter is not null)
@@ -108,10 +130,26 @@ public partial class ParcelMapView : UserControl, IParcelMapView
         UpdateParcelActions();
         UpdateMapActions();
         if (_presenter is not null && !DesignMode)
+        {
             await _presenter.LoadAsync();
+            if (_pendingParcelId is { } parcelId)
+            {
+                _pendingParcelId = null;
+                await _presenter.SelectAsync(parcelId);
+            }
+        }
     }
 
     public void ConfigureMapTiles(MapTileOptions options) => _map.Configure(options);
+
+    private async Task SelectPendingParcelAsync(Guid parcelId)
+    {
+        if (_presenter is null) return;
+        await _presenter.LoadAsync();
+        if (IsDisposed) return;
+        await _presenter.SelectAsync(parcelId);
+        _pendingParcelId = null;
+    }
 
     private void ApplyTheme()
     {
@@ -119,12 +157,12 @@ public partial class ParcelMapView : UserControl, IParcelMapView
         layoutMain.BackColor = Theme.Page;
         lblParcelLabel.ForeColor = Theme.Navy;
         lblDescription.ForeColor = Theme.Muted;
+        lblMapStatus.ForeColor = Theme.Muted;
         lblLeadsHeader.ForeColor = Theme.Navy;
         listLeads.ForeColor = Theme.Text;
         listLeads.BackColor = Theme.Surface;
         ButtonStyle.Apply(btnAttachLead, primary: false);
         ButtonStyle.Apply(btnNewParcel, primary: true);
-        ButtonStyle.Apply(btnPlaceMarker, primary: false);
         ButtonStyle.Apply(btnUndo, primary: false);
         ButtonStyle.Apply(btnFinish, primary: true);
         ButtonStyle.Apply(btnCancel, primary: false);
@@ -133,6 +171,11 @@ public partial class ParcelMapView : UserControl, IParcelMapView
         ButtonStyle.Apply(btnChangePrice, primary: false);
         ButtonStyle.Apply(btnReassign, primary: false);
         ButtonStyle.Apply(btnArchive, primary: false);
+        ButtonStyle.Apply(btnAddPhotos, primary: false);
+        ButtonStyle.Apply(btnRemovePhoto, primary: false);
+        lblPhotosHeader.ForeColor = Theme.Navy;
+        lblPhotoStatus.ForeColor = Theme.Muted;
+        flowPhotos.BackColor = Theme.Surface;
     }
 
     private void BuildFacts()
@@ -198,14 +241,24 @@ public partial class ParcelMapView : UserControl, IParcelMapView
     {
         if (IsDisposed) return;
 
+        var parcelChanged = _currentParcelId != parcel.Id;
+        if (parcelChanged)
+        {
+            ClearTransientStatus();
+            CancelPhotoLoad();
+            ClearPhotoThumbnails();
+            _selectedPhotoId = null;
+        }
         _currentParcelId = parcel.Id;
         _currentParcel = parcel;
         var wasCollapsed = layoutMain.Panel2Collapsed;
         layoutMain.Panel2Collapsed = false;
         if (wasCollapsed)
             ApplyPreferredInspectorWidth();
+        layoutMain.PerformLayout();
         detailsLayout.Visible = true;
         _map.SelectParcel(parcel.Id);
+        _map.FitParcel(parcel.Id);
 
         lblParcelLabel.Text = parcel.Label;
         lblParcelStatus.Text = "● " + parcel.Status;
@@ -228,6 +281,9 @@ public partial class ParcelMapView : UserControl, IParcelMapView
         lblDescription.Text = string.IsNullOrWhiteSpace(parcel.Description) ? "No description." : parcel.Description;
         UpdateAttachAction();
         UpdateParcelActions();
+        UpdatePhotoActions();
+        if (parcelChanged)
+            StartPhotoLoad(parcel.Id);
 
         listLeads.BeginUpdate();
         listLeads.Items.Clear();
@@ -259,15 +315,20 @@ public partial class ParcelMapView : UserControl, IParcelMapView
     public void ClearParcel()
     {
         if (IsDisposed) return;
+        ClearTransientStatus();
         _currentParcelId = null;
         _currentParcel = null;
+        CancelPhotoLoad();
+        ClearPhotoThumbnails();
+        _selectedPhotoId = null;
+        lblPhotoStatus.Text = "Select a parcel to view photos.";
+        progressPhotos.Visible = false;
         _map.SelectParcel(null);
         UpdateAttachAction();
         UpdateParcelActions();
+        UpdatePhotoActions();
         layoutMain.Panel2Collapsed = true;
     }
-
-    public void FocusParcel(Guid parcelId) => _map.FitParcel(parcelId);
 
     private void AttachLead()
     {
@@ -318,13 +379,336 @@ public partial class ParcelMapView : UserControl, IParcelMapView
         ], _actionToolTip);
     }
 
+    private void UpdatePhotoActions()
+    {
+        var visible = _presenter?.CanShowPhotoActions == true;
+        var parcelSelected = _currentParcelId is not null;
+        var permission = visible
+            ? _presenter!.GetPhotoMutationPermission(_currentParcelId)
+            : RuleResult.Fail("Photo changes are unavailable for your role.");
+        var canChangePhotos = parcelSelected && permission.Ok && !_photoOperationInProgress;
+        var disabledReason = parcelSelected
+            ? permission.Message
+            : "Select a parcel first.";
+        ButtonStyle.ApplyAvailability(
+        [
+            new ButtonAvailability(btnAddPhotos, visible, canChangePhotos,
+                canChangePhotos ? null : disabledReason, Primary: false),
+            new ButtonAvailability(btnRemovePhoto, visible,
+                canChangePhotos && _selectedPhotoId is not null,
+                canChangePhotos
+                    ? _selectedPhotoId is null ? "Select a photo first." : null
+                    : disabledReason,
+                Primary: false)
+        ], _photoToolTip);
+    }
+
+    private void StartPhotoLoad(Guid parcelId)
+    {
+        CancelPhotoLoad();
+        _photoLoadCancellation = new CancellationTokenSource();
+        _ = LoadPhotoThumbnailsAsync(parcelId, _photoLoadCancellation.Token);
+    }
+
+    private async Task RefreshPhotoThumbnailsAsync(Guid parcelId)
+    {
+        CancelPhotoLoad();
+        _photoLoadCancellation = new CancellationTokenSource();
+        await LoadPhotoThumbnailsAsync(parcelId, _photoLoadCancellation.Token);
+    }
+
+    private async Task LoadPhotoThumbnailsAsync(Guid parcelId, CancellationToken cancellationToken)
+    {
+        var presenter = _presenter;
+        if (presenter is null || IsDisposed)
+            return;
+
+        lblPhotoStatus.Text = "Loading photos...";
+        progressPhotos.Visible = true;
+        try
+        {
+            var result = await Task.Run(
+                () => presenter.ListPhotosAsync(parcelId, cancellationToken),
+                cancellationToken);
+            if (cancellationToken.IsCancellationRequested || IsDisposed || _currentParcelId != parcelId)
+                return;
+            if (!result.Ok || result.Value is null)
+            {
+                lblPhotoStatus.Text = result.Message;
+                return;
+            }
+
+            var photos = result.Value;
+            var loaded = await Task.Run(
+                () => DecodeThumbnails(photos, cancellationToken),
+                cancellationToken);
+            if (cancellationToken.IsCancellationRequested || IsDisposed || _currentParcelId != parcelId)
+            {
+                DisposeLoadedThumbnails(loaded);
+                return;
+            }
+
+            DisplayPhotoThumbnails(loaded);
+            lblPhotoStatus.Text = photos.Count == 0
+                ? "No photos yet."
+                : $"{photos.Count} photo{(photos.Count == 1 ? string.Empty : "s")}.";
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            if (!IsDisposed && _currentParcelId == parcelId)
+                lblPhotoStatus.Text = $"Could not load parcel photos. {ex.Message}";
+        }
+        finally
+        {
+            if (!IsDisposed && _currentParcelId == parcelId)
+                progressPhotos.Visible = _photoOperationInProgress;
+        }
+    }
+
+    private static Image DecodeThumbnail(byte[] bytes)
+    {
+        using var stream = new MemoryStream(bytes);
+        using var image = Image.FromStream(stream);
+        return new Bitmap(image);
+    }
+
+    private static List<(ParcelPhotoThumbnailDto Photo, Image Image)> DecodeThumbnails(
+        IReadOnlyList<ParcelPhotoThumbnailDto> photos,
+        CancellationToken cancellationToken)
+    {
+        var loaded = new List<(ParcelPhotoThumbnailDto Photo, Image Image)>(photos.Count);
+        try
+        {
+            foreach (var photo in photos)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                loaded.Add((photo, DecodeThumbnail(photo.ThumbnailBytes)));
+            }
+            return loaded;
+        }
+        catch
+        {
+            DisposeLoadedThumbnails(loaded);
+            throw;
+        }
+    }
+
+    private void DisplayPhotoThumbnails(
+        IReadOnlyList<(ParcelPhotoThumbnailDto Photo, Image Image)> thumbnails)
+    {
+        ClearPhotoThumbnails();
+        _parcelPhotos.Clear();
+        foreach (var (photo, image) in thumbnails)
+        {
+            _parcelPhotos.Add(photo);
+            var picture = new PictureBox
+            {
+                BackColor = Theme.Surface,
+                BorderStyle = BorderStyle.FixedSingle,
+                Cursor = Cursors.Hand,
+                Image = image,
+                Margin = new Padding(3),
+                Size = new Size(LogicalToDeviceUnits(78), LogicalToDeviceUnits(78)),
+                SizeMode = PictureBoxSizeMode.Zoom,
+                Tag = photo
+            };
+            _photoToolTip.SetToolTip(picture, $"{photo.FileName} ({photo.SizeBytes:N0} bytes)");
+            picture.Click += (_, _) => SelectPhoto(picture);
+            picture.DoubleClick += async (_, _) => await OpenPhotoViewerAsync(photo.Id);
+            flowPhotos.Controls.Add(picture);
+        }
+        UpdatePhotoActions();
+    }
+
+    private void SelectPhoto(PictureBox picture)
+    {
+        if (picture.Tag is not ParcelPhotoThumbnailDto photo)
+            return;
+
+        _selectedPhotoId = photo.Id;
+        foreach (var control in flowPhotos.Controls)
+        {
+            if (control is PictureBox thumbnail && thumbnail.Tag is ParcelPhotoThumbnailDto item)
+                thumbnail.BackColor = item.Id == photo.Id ? Theme.SurfaceHover : Theme.Surface;
+        }
+        UpdatePhotoActions();
+    }
+
+    private void ClearPhotoThumbnails()
+    {
+        foreach (Control control in flowPhotos.Controls)
+        {
+            if (control is PictureBox picture)
+            {
+                _photoToolTip.SetToolTip(picture, string.Empty);
+                picture.Image?.Dispose();
+                picture.Image = null;
+            }
+            control.Dispose();
+        }
+        flowPhotos.Controls.Clear();
+        _parcelPhotos.Clear();
+    }
+
+    private static void DisposeLoadedThumbnails(IEnumerable<(ParcelPhotoThumbnailDto Photo, Image Image)> thumbnails)
+    {
+        foreach (var (_, image) in thumbnails)
+            image.Dispose();
+    }
+
+    private void CancelPhotoLoad()
+    {
+        _photoLoadCancellation?.Cancel();
+        _photoLoadCancellation?.Dispose();
+        _photoLoadCancellation = null;
+    }
+
+    private void DisposePhotoResources()
+    {
+        CancelPhotoLoad();
+        if (flowPhotos is not null)
+            ClearPhotoThumbnails();
+        _photoToolTip.Dispose();
+        _actionToolTip.Dispose();
+    }
+
+    private async Task AddPhotosAsync()
+    {
+        if (_presenter is null || _currentParcelId is not { } parcelId)
+            return;
+
+        var pattern = string.Join(";", ParcelPhotoLimits.SupportedExtensions.Select(extension => "*" + extension));
+        using var dialog = new OpenFileDialog
+        {
+            Filter = $"Image files ({pattern})|{pattern}",
+            Multiselect = true,
+            Title = "Add parcel photos"
+        };
+        if (dialog.ShowDialog(FindForm()) != DialogResult.OK)
+            return;
+
+        _photoOperationInProgress = true;
+        progressPhotos.Visible = true;
+        UpdatePhotoActions();
+        try
+        {
+            for (var index = 0; index < dialog.FileNames.Length; index++)
+            {
+                if (IsDisposed || _currentParcelId != parcelId)
+                    break;
+
+                var filePath = dialog.FileNames[index];
+                lblPhotoStatus.Text = $"Processing {index + 1} of {dialog.FileNames.Length}: {Path.GetFileName(filePath)}";
+                try
+                {
+                    var processed = await Task.Run(() => PhotoProcessor.Process(filePath));
+                    if (!processed.Ok || processed.Value is null)
+                    {
+                        ShowActionMessage($"{Path.GetFileName(filePath)}: {processed.Message}");
+                        continue;
+                    }
+
+                    var result = await _presenter.AddPhotoAsync(
+                        parcelId,
+                        Path.GetFileName(filePath),
+                        processed.Value.ImageBytes,
+                        processed.Value.ThumbnailBytes);
+                    if (!result.Ok)
+                        ShowActionMessage($"{Path.GetFileName(filePath)}: {result.Message}");
+                }
+                catch (Exception ex)
+                {
+                    ShowActionMessage($"{Path.GetFileName(filePath)}: the photo could not be added. {ex.Message}");
+                }
+            }
+        }
+        finally
+        {
+            _photoOperationInProgress = false;
+            if (!IsDisposed && _currentParcelId == parcelId)
+            {
+                progressPhotos.Visible = false;
+                await RefreshPhotoThumbnailsAsync(parcelId);
+                UpdatePhotoActions();
+            }
+        }
+    }
+
+    private async Task RemovePhotoAsync()
+    {
+        if (_presenter is null || _currentParcelId is not { } parcelId || _selectedPhotoId is not { } photoId)
+            return;
+
+        var photo = _parcelPhotos.FirstOrDefault(item => item.Id == photoId);
+        if (photo is null)
+            return;
+        if (MessageBox.Show(
+                FindForm(),
+                $"Remove \"{photo.FileName}\" from this parcel?",
+                "Remove parcel photo",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Warning) != DialogResult.Yes)
+            return;
+
+        _photoOperationInProgress = true;
+        progressPhotos.Visible = true;
+        lblPhotoStatus.Text = "Removing photo...";
+        UpdatePhotoActions();
+        try
+        {
+            var result = await _presenter.RemovePhotoAsync(parcelId, photoId);
+            if (!result.Ok)
+            {
+                ShowActionMessage(result.Message);
+                return;
+            }
+
+            _selectedPhotoId = null;
+            await RefreshPhotoThumbnailsAsync(parcelId);
+        }
+        catch (Exception ex)
+        {
+            ShowActionMessage($"The photo could not be removed. {ex.Message}");
+        }
+        finally
+        {
+            _photoOperationInProgress = false;
+            if (!IsDisposed && _currentParcelId == parcelId)
+            {
+                progressPhotos.Visible = false;
+                UpdatePhotoActions();
+            }
+        }
+    }
+
+    private Task OpenPhotoViewerAsync(Guid photoId)
+    {
+        if (_presenter is null)
+            return Task.CompletedTask;
+        var index = _parcelPhotos.FindIndex(photo => photo.Id == photoId);
+        if (index < 0)
+            return Task.CompletedTask;
+
+        var presenter = _presenter;
+        using var dialog = new PhotoViewerDialog(
+            _parcelPhotos.ToArray(),
+            index,
+            selectedPhotoId => presenter.GetPhotoImageAsync(selectedPhotoId));
+        dialog.ShowDialog(FindForm());
+        return Task.CompletedTask;
+    }
+
     private void UpdateMapActions()
     {
         var canPlot = _presenter?.CanPlotParcel == true;
         var active = _mapMode != "none";
+        var canStart = canPlot && !active && !_savingGeometry;
         var enabledReason = active ? "Finish or cancel the current map mode first." : null;
         var polygonMode = _mapMode == "polygon";
-        var canFinish = active && (_mapMode != "polygon" || _modeVertexCount >= 3);
+        var canFinish = active && !_savingGeometry && (_mapMode != "polygon" || _modeVertexCount >= 3);
         var finishReason = _mapMode == "polygon" && _modeVertexCount < 3
             ? "Add at least 3 boundary points before finishing."
             : null;
@@ -334,15 +718,13 @@ public partial class ParcelMapView : UserControl, IParcelMapView
 
         ButtonStyle.ApplyAvailability(
         [
-            new ButtonAvailability(btnNewParcel, canPlot, canPlot && !active,
+            new ButtonAvailability(btnNewParcel, canPlot, canStart,
                 enabledReason ?? _presenter?.PlotPermission.Message, Primary: true),
-            new ButtonAvailability(btnPlaceMarker, canPlot, canPlot && !active,
-                enabledReason ?? _presenter?.PlotPermission.Message, Primary: false),
-            new ButtonAvailability(btnUndo, canPlot && active, polygonMode && _modeVertexCount > 0,
+            new ButtonAvailability(btnUndo, canPlot && active, polygonMode && _modeVertexCount > 0 && !_savingGeometry,
                 undoReason, Primary: false),
             new ButtonAvailability(btnFinish, canPlot && active, canFinish,
                 finishReason ?? "Finish is available during a map mode.", Primary: true),
-            new ButtonAvailability(btnCancel, canPlot && active, active,
+            new ButtonAvailability(btnCancel, canPlot && active, active && !_savingGeometry,
                 "Cancel the current map mode.", Primary: false)
         ], _actionToolTip);
 
@@ -352,15 +734,14 @@ public partial class ParcelMapView : UserControl, IParcelMapView
             "polygon" => _modeVertexCount < 3
                 ? $"Click to add boundary points ({_modeVertexCount}; at least 3). Enter/double-click to finish; Backspace to undo; Esc to cancel."
                 : $"Click to add boundary points ({_modeVertexCount}). Enter/double-click to finish; Backspace to undo; Esc to cancel.",
-            "marker" => "Click to place the marker, or Esc to cancel.",
             "editGeometry" => "Drag the vertices. Enter or Finish to save; Esc to cancel.",
             _ => string.Empty
         };
     }
 
-    private void StartDraw(string mode)
+    private void StartDraw()
     {
-        if (_presenter is null || _mapMode != "none")
+        if (_presenter is null || _mapMode != "none" || _savingGeometry)
             return;
         var permission = _presenter.PlotPermission;
         if (!permission.Ok)
@@ -368,7 +749,15 @@ public partial class ParcelMapView : UserControl, IParcelMapView
             ShowActionMessage(permission.Message);
             return;
         }
-        _map.StartDraw(mode);
+        try
+        {
+            _map.StartDraw();
+        }
+        catch (Exception ex)
+        {
+            ResetMapModeUi();
+            ShowActionMessage($"Parcel drawing could not be started. {ex.Message}");
+        }
     }
 
     private void StartShapeEdit()
@@ -381,7 +770,15 @@ public partial class ParcelMapView : UserControl, IParcelMapView
             ShowActionMessage(permission.Message);
             return;
         }
-        _map.StartEditGeometry(parcelId);
+        try
+        {
+            _map.StartEditGeometry(parcelId);
+        }
+        catch (Exception ex)
+        {
+            ResetMapModeUi();
+            ShowActionMessage($"Parcel shape editing could not be started. {ex.Message}");
+        }
     }
 
     private async Task HandleDrawCompleteAsync(ParcelGeometryEventArgs args)
@@ -389,22 +786,30 @@ public partial class ParcelMapView : UserControl, IParcelMapView
         if (_presenter is null)
             return;
 
-        var permission = _presenter.PlotPermission;
-        if (!permission.Ok)
-        {
-            ShowActionMessage(permission.Message);
-            return;
-        }
-
-        var validation = ParcelGeometry.Validate(args.Kind, args.Points);
-        if (!validation.Ok)
-        {
-            ShowActionMessage(validation.Message);
-            return;
-        }
-
+        _savingGeometry = true;
+        UpdateMapActions();
         try
         {
+            if (args.Kind != "polygon")
+            {
+                ShowActionMessage("New parcels must be drawn as polygons.");
+                return;
+            }
+
+            var permission = _presenter.PlotPermission;
+            if (!permission.Ok)
+            {
+                ShowActionMessage(permission.Message);
+                return;
+            }
+
+            var validation = ParcelGeometry.Validate("polygon", args.Points);
+            if (!validation.Ok)
+            {
+                ShowActionMessage(validation.Message);
+                return;
+            }
+
             var ownersResult = await _presenter.ListOwnersAsync();
             if (IsDisposed)
                 return;
@@ -426,32 +831,34 @@ public partial class ParcelMapView : UserControl, IParcelMapView
                 agents = agentsResult.Value;
             }
 
-            var geoJson = args.Kind == "polygon"
-                ? ParcelGeometry.BuildPolygonGeoJson(args.Points)
-                : null;
-            var marker = args.Kind == "marker" ? args.Points[0] : (ParcelCoordinate?)null;
-            var areaSqm = args.Kind == "polygon" ? ParcelGeometry.ComputeAreaSqm(args.Points) : (decimal?)null;
+            var geoJson = ParcelGeometry.BuildPolygonGeoJson(args.Points);
+            var areaSqm = ParcelGeometry.ComputeAreaSqm(args.Points);
             using var dialog = new ParcelDialog(
                 ownersResult.Value,
                 agents,
                 null,
                 areaSqm,
                 geoJson,
-                marker?.Latitude,
-                marker?.Longitude)
+                null,
+                null)
             {
                 CreateOwnerHandler = _presenter.CreateOwnerAsync
             };
             if (dialog.ShowDialog(FindForm()) != DialogResult.OK || dialog.CreateRequest is not { } request)
                 return;
 
-            var result = await _presenter.SaveDrawnParcelAsync(request, args.Kind, args.Points);
+            var result = await _presenter.SaveDrawnParcelAsync(request, "polygon", args.Points);
             ShowServiceResult(result.Ok, result.Message);
         }
         catch (Exception ex)
         {
             if (!IsDisposed)
                 ShowActionMessage($"The parcel could not be created. {ex.Message}");
+        }
+        finally
+        {
+            _savingGeometry = false;
+            ResetMapModeUi();
         }
     }
 
@@ -460,15 +867,17 @@ public partial class ParcelMapView : UserControl, IParcelMapView
         if (_presenter is null || args.ParcelId is not { } parcelId)
             return;
 
-        var validation = ParcelGeometry.Validate(args.Kind, args.Points);
-        if (!validation.Ok)
-        {
-            ShowActionMessage(validation.Message);
-            return;
-        }
-
+        _savingGeometry = true;
+        UpdateMapActions();
         try
         {
+            var validation = ParcelGeometry.Validate(args.Kind, args.Points);
+            if (!validation.Ok)
+            {
+                ShowActionMessage(validation.Message);
+                return;
+            }
+
             var result = await _presenter.SaveEditedGeometryAsync(parcelId, args.Kind, args.Points);
             ShowServiceResult(result.Ok, result.Message);
         }
@@ -476,6 +885,11 @@ public partial class ParcelMapView : UserControl, IParcelMapView
         {
             if (!IsDisposed)
                 ShowActionMessage($"The parcel shape could not be saved. {ex.Message}");
+        }
+        finally
+        {
+            _savingGeometry = false;
+            ResetMapModeUi();
         }
     }
 
@@ -620,9 +1034,40 @@ public partial class ParcelMapView : UserControl, IParcelMapView
         if (string.IsNullOrWhiteSpace(message))
             return;
         if (ok)
-            _map.SetMessage(message);
+            ShowTransientStatus(message);
         else
             ShowActionMessage(message);
+    }
+
+    private void ShowTransientStatus(string message)
+    {
+        if (IsDisposed)
+            return;
+
+        lblMapStatus.Text = message;
+        lblMapStatus.Visible = true;
+        transientStatusTimer.Stop();
+        transientStatusTimer.Start();
+    }
+
+    private void ClearTransientStatus()
+    {
+        if (IsDisposed)
+            return;
+
+        transientStatusTimer.Stop();
+        lblMapStatus.Text = string.Empty;
+        lblMapStatus.Visible = false;
+    }
+
+    private void ResetMapModeUi()
+    {
+        if (IsDisposed)
+            return;
+
+        _mapMode = "none";
+        _modeVertexCount = 0;
+        UpdateMapActions();
     }
 
     private void ShowActionMessage(string message)

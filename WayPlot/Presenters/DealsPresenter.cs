@@ -19,7 +19,9 @@ public sealed record ActionAvailability(bool Visible, bool Enabled, string? Disa
 public sealed record DealActionStates(
     ActionAvailability RequestClosed,
     ActionAvailability ConfirmClosed,
+    ActionAvailability ReturnRequest,
     ActionAvailability CancelDeal,
+    ActionAvailability DefaultDeal,
     ActionAvailability RecordPayment,
     ActionAvailability ConfirmPayment,
     ActionAvailability ReturnPayment);
@@ -33,12 +35,15 @@ public sealed class DealsPresenter(IDealsView view, DealService deals, ICurrentU
     {
         var isAgent = user.Role == Roles.Agent;
         var isTenantAdmin = user.Role == Roles.TenantAdmin;
+        var canRequestOrReturn = isAgent || isTenantAdmin;
 
         return new DealActionStates(
-            ForRole(isAgent, null),
+            ForRole(canRequestOrReturn, null),
             ForRole(isTenantAdmin, ConfirmClosedDisabledReason(deal)),
-            ForRole(isTenantAdmin, CancelDealDisabledReason(deal)),
-            ForRole(isAgent, RecordPaymentDisabledReason(deal)),
+            ForRole(canRequestOrReturn, ReturnRequestDisabledReason(deal)),
+            ForRole(isTenantAdmin, TerminationBlockedReason(deal, "cancel")),
+            ForRole(isTenantAdmin, TerminationBlockedReason(deal, "default")),
+            ForRole(canRequestOrReturn, RecordPaymentDisabledReason(deal)),
             ForRole(isTenantAdmin, ConfirmPaymentDisabledReason(deal, payment)),
             ForRole(isTenantAdmin, ReturnPaymentDisabledReason(deal, payment)));
     }
@@ -82,11 +87,11 @@ public sealed class DealsPresenter(IDealsView view, DealService deals, ICurrentU
         }
     }
 
-    public async Task<ServiceResult<DealListItem>> CreateAsync(CreateDealRequest request)
+    public async Task<ServiceResult<DealListItem>> RequestClosedAsync(CreateDealRequest request)
     {
         try
         {
-            return await deals.CreateAsync(request);
+            return await deals.RequestClosedAsync(request);
         }
         catch (Exception)
         {
@@ -95,11 +100,11 @@ public sealed class DealsPresenter(IDealsView view, DealService deals, ICurrentU
         }
     }
 
-    public async Task<ServiceResult<DealListItem>> ConfirmAsync(Guid dealId)
+    public async Task<ServiceResult<DealListItem>> ConfirmClosedAsync(Guid dealId, ParcelStatus status)
     {
         try
         {
-            return await deals.ConfirmAsync(dealId);
+            return await deals.ConfirmClosedAsync(dealId, status);
         }
         catch (Exception)
         {
@@ -108,16 +113,54 @@ public sealed class DealsPresenter(IDealsView view, DealService deals, ICurrentU
         }
     }
 
-    public async Task<ServiceResult<DealListItem>> CancelAsync(Guid dealId)
+    public async Task<ServiceResult<DealListItem>> ReturnRequestAsync(Guid dealId)
     {
         try
         {
-            return await deals.CancelAsync(dealId);
+            return await deals.ReturnRequestAsync(dealId);
         }
         catch (Exception)
         {
-            return ServiceResult<DealListItem>.Fail(
-                "The deal could not be canceled. Reload the list and try again.");
+            return ServiceResult<DealListItem>.Fail("The request could not be returned. Reload the list and try again.");
+        }
+    }
+
+    public async Task<ServiceResult<DealListItem>> CancelDealAsync(
+        Guid dealId, string reason, DealMoneyOutcome? moneyOutcome, decimal? refundedAmount)
+    {
+        try
+        {
+            return await deals.CancelDealAsync(dealId, reason, moneyOutcome, refundedAmount);
+        }
+        catch (Exception)
+        {
+            return ServiceResult<DealListItem>.Fail("The deal could not be cancelled. Reload the list and try again.");
+        }
+    }
+
+    public async Task<ServiceResult<DealListItem>> DefaultDealAsync(
+        Guid dealId, string reason, DealMoneyOutcome? moneyOutcome, decimal? refundedAmount)
+    {
+        try
+        {
+            return await deals.DefaultDealAsync(dealId, reason, moneyOutcome, refundedAmount);
+        }
+        catch (Exception)
+        {
+            return ServiceResult<DealListItem>.Fail("The deal could not be defaulted. Reload the list and try again.");
+        }
+    }
+
+    public async Task<ServiceResult<DealTerminationSummary>> GetTerminationSummaryAsync(Guid dealId)
+    {
+        try
+        {
+            return await deals.GetTerminationSummaryAsync(dealId);
+        }
+        catch (Exception)
+        {
+            return ServiceResult<DealTerminationSummary>.Fail(
+                "The termination summary could not be loaded. Reload the deals list and try again.");
         }
     }
 
@@ -213,20 +256,8 @@ public sealed class DealsPresenter(IDealsView view, DealService deals, ICurrentU
         if (deal.IsConfirmed) return "This deal is already confirmed.";
         if (!deal.IsActive) return "This deal is no longer active.";
         if (deal.Status != DealStatus.Current) return "Only current deals can be confirmed.";
-        if (!deal.CloseRequested) return "Closed has not been requested by an Agent.";
+        if (!deal.CloseRequested) return "There is no pending Closed request.";
         if (deal.LeadStage != LeadStage.Negotiation) return "Only a Negotiation lead can be confirmed as Closed.";
-        return null;
-    }
-
-    private static string? CancelDealDisabledReason(DealListItem? deal)
-    {
-        if (deal is null) return "Select a deal first.";
-        if (deal.Status == DealStatus.Cancelled) return "This deal is already cancelled.";
-        if (deal.Status == DealStatus.FullyPaid) return "A fully paid deal cannot be cancelled.";
-        if (deal.Status == DealStatus.Defaulted) return "A defaulted deal cannot be cancelled.";
-        if (deal.IsConfirmed) return "A confirmed deal cannot be cancelled.";
-        if (!deal.IsActive || deal.Status != DealStatus.Current) return "Only an active, unconfirmed deal can be cancelled.";
-        if (deal.HasPaymentActivity) return "This deal has payment activity and cannot be cancelled.";
         return null;
     }
 
@@ -238,9 +269,35 @@ public sealed class DealsPresenter(IDealsView view, DealService deals, ICurrentU
         if (deal.Status == DealStatus.Defaulted) return "A defaulted deal cannot receive payments.";
         if (!deal.IsActive || deal.Status != DealStatus.Current) return "Only an active, current deal can receive payments.";
         if (!deal.IsConfirmed) return "A Tenant Admin must confirm this deal before payments can be recorded.";
-        if (deal.ParcelStatus is ParcelStatus.Sold or ParcelStatus.Leased)
-            return $"Parcel is {deal.ParcelStatus}; no further payment can be recorded.";
-        if (deal.RemainingBalance <= 0) return "Payments already cover the deal price; wait for Tenant Admin review.";
+        if (deal.RemainingBalance <= 0) return "Confirmed payments already cover the net deal price.";
+        return null;
+    }
+
+    private static string? ReturnRequestDisabledReason(DealListItem? deal)
+    {
+        if (deal is null) return "Select a deal first.";
+        if (deal.IsConfirmed || !deal.IsActive || !deal.CloseRequested || deal.Status != DealStatus.Current)
+            return "Only a pending Closed request can be returned.";
+        return null;
+    }
+
+    private static string? TerminationBlockedReason(DealListItem? deal, string action)
+    {
+        var actionPast = action == "cancel" ? "cancelled" : "defaulted";
+        if (deal is null) return "Select a confirmed deal first.";
+        if (deal.Status == DealStatus.FullyPaid)
+            return action == "cancel"
+                ? "A fully paid deal cannot be cancelled."
+                : "A fully paid deal cannot be defaulted.";
+        if (deal.Status == DealStatus.Cancelled)
+            return "This deal is already Cancelled.";
+        if (deal.Status == DealStatus.Defaulted)
+            return "This deal is already Defaulted.";
+        if (!deal.IsConfirmed || !deal.IsActive
+            || deal.Status is not (DealStatus.Current or DealStatus.Overdue))
+            return $"Only an active, confirmed Current or Overdue deal can be {actionPast}.";
+        if (deal.HasAwaitingPayment)
+            return "Confirm or return the pending payments first.";
         return null;
     }
 
@@ -256,8 +313,6 @@ public sealed class DealsPresenter(IDealsView view, DealService deals, ICurrentU
         if (deal.Status == DealStatus.Defaulted) return "A defaulted deal cannot accept payment confirmation.";
         if (deal.Status != DealStatus.Current || !deal.IsActive || !deal.IsConfirmed)
             return "The payment's deal is not active and confirmed.";
-        if (deal.ParcelStatus is ParcelStatus.Sold or ParcelStatus.Leased)
-            return $"Parcel is {deal.ParcelStatus}; this payment cannot be confirmed.";
         return null;
     }
 

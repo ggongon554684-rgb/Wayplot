@@ -5,6 +5,7 @@ public interface ITenantUnitOfWork : IAsyncDisposable
 {
     IOwnerRepository Owners { get; }
     IParcelRepository Parcels { get; }
+    IParcelPhotoRepository ParcelPhotos { get; }
     IContactRepository Contacts { get; }
     IStaffRepository Staff { get; }
     ISettingRepository Settings { get; }
@@ -19,6 +20,8 @@ public interface ITenantUnitOfWork : IAsyncDisposable
 
     /// <summary>Saves everything changed in this unit of work. Returns the number of rows written.</summary>
     Task<int> SaveAsync();
+
+    Task ExecuteInTransactionAsync(Func<Task> operation);
 }
 
 /// <summary>Creates a unit of work for the signed-in tenant. Services call Create() per operation and never keep the result.</summary>

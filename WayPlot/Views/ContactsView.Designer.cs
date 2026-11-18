@@ -1,4 +1,5 @@
 ﻿#nullable disable
+using WayPlot.UI;
 namespace WayPlot.Views
 {
     partial class ContactsView
@@ -25,14 +26,29 @@ namespace WayPlot.Views
             btnImport = new Button();
             btnNew = new Button();
             lblSummary = new Label();
+            filters = new TableLayoutPanel();
+            btnKindAll = new Button();
+            btnKindCustomers = new Button();
+            btnKindClients = new Button();
+            btnKindLandowners = new Button();
+            cboAgent = new ComboBox();
+            splitMain = new SplitContainer();
             listContacts = new ListView();
             colName = new ColumnHeader();
+            colKind = new ColumnHeader();
             colPhone = new ColumnHeader();
             colEmail = new ColumnHeader();
-            colSource = new ColumnHeader();
-            colType = new ColumnHeader();
-            colSms = new ColumnHeader();
-            colEmailConsent = new ColumnHeader();
+            colAgent = new ColumnHeader();
+            colOpenLeads = new ColumnHeader();
+            colDeals = new ColumnHeader();
+            colBalance = new ColumnHeader();
+            colParcels = new ColumnHeader();
+            detailPanel = new Panel();
+            detailTop = new TableLayoutPanel();
+            lblDetailName = new Label();
+            btnCloseDetail = new Button();
+            detailScroll = new Panel();
+            detailBody = new TableLayoutPanel();
             searchTimer = new System.Windows.Forms.Timer(components);
             actionToolTip = new ToolTip(components);
             card.SuspendLayout();
@@ -54,12 +70,14 @@ namespace WayPlot.Views
             layout.ColumnCount = 1;
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
             layout.Controls.Add(toolbar, 0, 0);
-            layout.Controls.Add(lblSummary, 0, 1);
-            layout.Controls.Add(listContacts, 0, 2);
+            layout.Controls.Add(filters, 0, 1);
+            layout.Controls.Add(lblSummary, 0, 2);
+            layout.Controls.Add(splitMain, 0, 3);
             layout.Dock = DockStyle.Fill;
             layout.Location = new Point(24, 24);
             layout.Name = "layout";
-            layout.RowCount = 3;
+            layout.RowCount = 4;
+            layout.RowStyles.Add(new RowStyle());
             layout.RowStyles.Add(new RowStyle());
             layout.RowStyles.Add(new RowStyle());
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
@@ -133,36 +151,93 @@ namespace WayPlot.Views
             lblSummary.TabIndex = 1;
             lblSummary.Text = "Loading contacts...";
             lblSummary.UseMnemonic = false;
-            // 
+            //
+            // filters
+            //
+            filters.ColumnCount = 5;
+            filters.Dock = DockStyle.Fill;
+            filters.AutoSize = true;
+            filters.Controls.Add(btnKindAll, 0, 0);
+            filters.Controls.Add(btnKindCustomers, 1, 0);
+            filters.Controls.Add(btnKindClients, 2, 0);
+            filters.Controls.Add(btnKindLandowners, 3, 0);
+            filters.Controls.Add(cboAgent, 4, 0);
+            filters.Name = "filters";
+            btnKindAll.Text = "All";
+            btnKindCustomers.Text = "Customers";
+            btnKindClients.Text = "Clients";
+            btnKindLandowners.Text = "Landowners";
+            cboAgent.DropDownStyle = ComboBoxStyle.DropDownList;
+            cboAgent.MinimumSize = new Size(180, 0);
+            cboAgent.Visible = false;
+            //
+            // splitMain
+            //
+            splitMain.Dock = DockStyle.Fill;
+            splitMain.Orientation = Orientation.Vertical;
+            splitMain.SplitterWidth = 6;
+            splitMain.Panel1MinSize = 420;
+            splitMain.Panel2MinSize = 330;
+            splitMain.Panel1.Controls.Add(listContacts);
+            splitMain.Panel2.Controls.Add(detailPanel);
+            splitMain.Panel2Collapsed = true;
+            splitMain.Name = "splitMain";
+            //
             // listContacts
-            // 
+            //
             listContacts.BorderStyle = BorderStyle.None;
-            listContacts.Columns.AddRange(new ColumnHeader[] { colName, colPhone, colEmail, colSource, colType, colSms, colEmailConsent });
+            listContacts.Columns.AddRange(new ColumnHeader[] {
+                colName, colKind, colPhone, colEmail, colAgent, colOpenLeads, colDeals, colBalance, colParcels });
             listContacts.Dock = DockStyle.Fill;
             listContacts.FullRowSelect = true;
             listContacts.HideSelection = false;
             listContacts.Margin = new Padding(0);
             listContacts.MultiSelect = false;
             listContacts.Name = "listContacts";
-            listContacts.TabIndex = 2;
             listContacts.View = View.Details;
-            // 
+            //
+            // detailPanel
+            //
+            detailPanel.Dock = DockStyle.Fill;
+            detailPanel.Controls.Add(detailTop);
+            detailPanel.Controls.Add(detailScroll);
+            detailTop.Dock = DockStyle.Top;
+            detailTop.Height = 44;
+            detailTop.ColumnCount = 2;
+            detailTop.Controls.Add(lblDetailName, 0, 0);
+            detailTop.Controls.Add(btnCloseDetail, 1, 0);
+            lblDetailName.AutoSize = true;
+            lblDetailName.Font = Theme.Heading;
+            lblDetailName.Dock = DockStyle.Fill;
+            btnCloseDetail.Text = "Close";
+            btnCloseDetail.AutoSize = true;
+            detailScroll.Dock = DockStyle.Fill;
+            detailScroll.AutoScroll = true;
+            detailScroll.Controls.Add(detailBody);
+            detailBody.Dock = DockStyle.Top;
+            detailBody.ColumnCount = 1;
+            detailBody.AutoSize = true;
+            //
             // columns
-            // 
+            //
             colName.Text = "Name";
             colName.Width = 210;
+            colKind.Text = "Kind";
+            colKind.Width = 110;
             colPhone.Text = "Phone";
             colPhone.Width = 140;
             colEmail.Text = "Email";
             colEmail.Width = 240;
-            colSource.Text = "Source";
-            colSource.Width = 120;
-            colType.Text = "Type";
-            colType.Width = 100;
-            colSms.Text = "SMS consent";
-            colSms.Width = 100;
-            colEmailConsent.Text = "Email consent";
-            colEmailConsent.Width = 110;
+            colAgent.Text = "Agent";
+            colAgent.Width = 140;
+            colOpenLeads.Text = "Open leads";
+            colOpenLeads.Width = 90;
+            colDeals.Text = "Deals";
+            colDeals.Width = 70;
+            colBalance.Text = "Balance";
+            colBalance.Width = 120;
+            colParcels.Text = "Parcels";
+            colParcels.Width = 80;
             // 
             // searchTimer
             // 
@@ -191,14 +266,29 @@ namespace WayPlot.Views
         private Button btnImport;
         private Button btnNew;
         private Label lblSummary;
+        private TableLayoutPanel filters;
+        private Button btnKindAll;
+        private Button btnKindCustomers;
+        private Button btnKindClients;
+        private Button btnKindLandowners;
+        private ComboBox cboAgent;
+        private SplitContainer splitMain;
         private ListView listContacts;
         private ColumnHeader colName;
+        private ColumnHeader colKind;
         private ColumnHeader colPhone;
         private ColumnHeader colEmail;
-        private ColumnHeader colSource;
-        private ColumnHeader colType;
-        private ColumnHeader colSms;
-        private ColumnHeader colEmailConsent;
+        private ColumnHeader colAgent;
+        private ColumnHeader colOpenLeads;
+        private ColumnHeader colDeals;
+        private ColumnHeader colBalance;
+        private ColumnHeader colParcels;
+        private Panel detailPanel;
+        private TableLayoutPanel detailTop;
+        private Label lblDetailName;
+        private Button btnCloseDetail;
+        private Panel detailScroll;
+        private TableLayoutPanel detailBody;
         private System.Windows.Forms.Timer searchTimer;
         private ToolTip actionToolTip;
     }

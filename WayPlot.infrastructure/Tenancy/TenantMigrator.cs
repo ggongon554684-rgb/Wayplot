@@ -13,7 +13,7 @@ namespace WayPlot.infrastructure.Tenancy;
 public sealed class TenantMigrator(MasterDbContext master, ITenantDbContextFactory factory, ILogger<TenantMigrator> log)
 {
     private const string StaffProvisioningBoundary = "20261117123239_RunA_StaffBranchesAndIntegrity";
-    private const string ExpectedLastMigration = "20261117130000_RunA_StaffForeignKeys";
+    private const string ExpectedLastMigration = "20261118090246_AddDealTermination";
 
     public async Task MigrateAllAsync(CancellationToken ct = default)
     {

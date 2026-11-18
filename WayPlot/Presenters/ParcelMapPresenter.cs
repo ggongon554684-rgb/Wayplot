@@ -22,8 +22,6 @@ public interface IParcelMapView
     void ShowLeadsError(string message);
 
     void ClearParcel();
-
-    void FocusParcel(Guid parcelId);
 }
 
 /// <summary>Loads the parcels, turns them into GeoJSON features, and fills the inspector when one is selected.
@@ -34,6 +32,7 @@ public sealed class ParcelMapPresenter(
     LeadService leads,
     ContactService contacts,
     InteractionService interactions,
+    ParcelPhotoService photos,
     TenantAccessPolicy access)
 {
     private readonly Dictionary<Guid, ParcelDto> _byId = [];
@@ -52,6 +51,38 @@ public sealed class ParcelMapPresenter(
     public bool CanShowAdminParcelActions => access.CanChangeParcelPrice().Ok;
     public RuleResult PlotPermission => access.CanPlotParcel();
     public bool CanPlotParcel => PlotPermission.Ok;
+    public bool CanShowPhotoActions => access.CanMutateData;
+
+    public RuleResult GetPhotoMutationPermission(Guid? parcelId)
+    {
+        if (parcelId is null || !_byId.TryGetValue(parcelId.Value, out var parcel))
+            return RuleResult.Fail("Select a parcel first.");
+        return access.CanEditParcel(parcel.AssignedStaffId);
+    }
+
+    public Task<ServiceResult<IReadOnlyList<ParcelPhotoThumbnailDto>>> ListPhotosAsync(
+        Guid parcelId,
+        CancellationToken cancellationToken = default) =>
+        photos.ListPhotosAsync(parcelId, cancellationToken);
+
+    public Task<ServiceResult<ParcelPhotoThumbnailDto>> AddPhotoAsync(
+        Guid parcelId,
+        string fileName,
+        byte[] imageBytes,
+        byte[] thumbnailBytes,
+        CancellationToken cancellationToken = default) =>
+        photos.AddPhotoAsync(parcelId, fileName, imageBytes, thumbnailBytes, cancellationToken);
+
+    public Task<ServiceResult<bool>> RemovePhotoAsync(
+        Guid parcelId,
+        Guid photoId,
+        CancellationToken cancellationToken = default) =>
+        photos.RemovePhotoAsync(parcelId, photoId, cancellationToken);
+
+    public Task<ServiceResult<ParcelPhotoImageDto>> GetPhotoImageAsync(
+        Guid photoId,
+        CancellationToken cancellationToken = default) =>
+        photos.GetPhotoImageAsync(photoId, cancellationToken);
 
     public RuleResult GetEditPermission(Guid? parcelId)
     {
@@ -129,6 +160,9 @@ public sealed class ParcelMapPresenter(
         string kind,
         IReadOnlyList<ParcelCoordinate> points)
     {
+        if (kind != "polygon")
+            return ServiceResult<ParcelDto>.Fail("New parcels must be drawn as polygons; marker geometry is not supported.");
+
         var validation = ParcelGeometry.Validate(kind, points);
         if (!validation.Ok)
             return ServiceResult<ParcelDto>.Fail(validation.Message);
@@ -334,7 +368,6 @@ public sealed class ParcelMapPresenter(
         if (view.IsDisposed || !_byId.ContainsKey(parcelId))
             return;
 
-        view.FocusParcel(parcelId);
         await SelectAsync(parcelId);
     }
 

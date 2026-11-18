@@ -11,6 +11,7 @@ public partial class RecordPaymentDialog : Form
 {
     private static readonly PaymentMethod[] Methods = Enum.GetValues<PaymentMethod>();
     private DealListItem? _deal;
+    private decimal? _prefillAmount;
 
     public RecordPaymentDialog()
     {
@@ -45,6 +46,19 @@ public partial class RecordPaymentDialog : Form
 
     [Browsable(false)]
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public decimal? PrefillAmount
+    {
+        get => _prefillAmount;
+        set
+        {
+            _prefillAmount = value;
+            if (value is > 0)
+                nudAmount.Value = Math.Min(value.Value, nudAmount.Maximum);
+        }
+    }
+
+    [Browsable(false)]
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public ServiceResult<PaymentListItem>? Result { get; private set; }
 
     private void ApplyTheme()
@@ -57,12 +71,18 @@ public partial class RecordPaymentDialog : Form
         lblDeal.ForeColor = Theme.Text;
         lblBalance.Font = Theme.Small;
         lblBalance.ForeColor = Theme.Muted;
+        lblDate.Font = Theme.Small;
+        lblDate.ForeColor = Theme.Muted;
+        lblReceipt.Font = Theme.Small;
+        lblReceipt.ForeColor = Theme.Muted;
         lblAmount.Font = Theme.Small;
         lblAmount.ForeColor = Theme.Muted;
         lblMethod.Font = Theme.Small;
         lblMethod.ForeColor = Theme.Muted;
         lblError.ForeColor = ColorTranslator.FromHtml("#8F2A1B");
         nudAmount.Font = Theme.Body;
+        dtpPaidAt.Font = Theme.Body;
+        txtReceipt.Font = Theme.Body;
         cboMethod.Font = Theme.Body;
         ButtonStyle.Apply(btnSave, primary: true);
         ButtonStyle.Apply(btnCancel, primary: false);
@@ -78,7 +98,7 @@ public partial class RecordPaymentDialog : Form
         try
         {
             var result = await SaveHandler(new RecordPaymentRequest(
-                _deal.Id, nudAmount.Value, Methods[cboMethod.SelectedIndex]));
+                _deal.Id, nudAmount.Value, dtpPaidAt.Value, Methods[cboMethod.SelectedIndex], txtReceipt.Text));
             if (IsDisposed) return;
             if (!result.Ok)
             {

@@ -3,20 +3,22 @@ using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using WayPlot.domain.Common;
 using WayPlot.domain.Contracts;
+using WayPlot.domain.Entities;
+using WayPlot.domain.Repositories;
 using WayPlot.domain.Services.DataCollection;
 using WayPlot.infrastructure.Tenancy;
 
 namespace WayPlot.infrastructure.Data.Seed;
 
 /// <summary>
-/// Demo data for a tenant database. Everything is written THROUGH the services, so the same rules that guard real
-/// data (phone normalizing, duplicate check, one lead per contact and parcel, pipeline order) also guard the seed.
-/// Run it after login: the rows are audited as the signed-in user.
+/// Demo data for a tenant database. System-owned seed rows are written through the unit of work; user-facing
+/// contact and lead workflows still use their services. Run it after login so audit fields identify the signed-in user.
 /// </summary>
 public sealed class TenantSeeder(
     ParcelService parcelService,
     ContactService contactService,
     LeadService leadService,
+    ITenantUnitOfWorkFactory uowFactory,
     ITenantDbContextFactory dbFactory,
     TenantSession session,
     SessionContext userSession)
@@ -227,7 +229,7 @@ public sealed class TenantSeeder(
                 owners[i % owners.Count].Id,
                 ParcelStatuses[i]);
 
-            parcels.Add(Need(await parcelService.CreateAsync(request), $"Parcel {label}"));
+            parcels.Add(await CreateSeedParcelAsync(request));
         }
 
         // 3. Twenty-four contacts, with mixed consent, sources and types. Two are email-only.
@@ -330,6 +332,48 @@ public sealed class TenantSeeder(
         return RuleResult.Success(
             $"Demo data created: {owners.Count} owners, {parcels.Count} parcels, {contacts.Count} contacts, " +
             $"{leadCount} leads, {duplicateCandidates.Count} duplicate captures merged.");
+    }
+
+    private async Task<ParcelDto> CreateSeedParcelAsync(CreateParcelRequest request)
+    {
+        await using var uow = uowFactory.Create();
+        var owner = await uow.Owners.GetAsync(request.OwnerId)
+            ?? throw new SeedFailure($"Owner for parcel {request.Label} was not found.");
+
+        var parcel = new Parcel
+        {
+            Label = request.Label.Trim(),
+            Description = request.Description.Trim(),
+            AreaSqm = request.AreaSqm,
+            Zoning = request.Zoning.Trim(),
+            Price = request.Price,
+            ReservationFee = request.ReservationFee,
+            Status = request.Status,
+            GeoJson = request.GeoJson,
+            Latitude = request.Latitude,
+            Longitude = request.Longitude,
+            TaxDeclarationNo = request.TaxDeclarationNo.Trim(),
+            TitleNo = request.TitleNo.Trim(),
+            Utilities = request.Utilities.Trim(),
+            RoadAccess = request.RoadAccess.Trim(),
+            OwnerId = owner.Id,
+            Owner = owner,
+            AssignedStaffId = userSession.Role == Roles.Agent ? userSession.UserId : request.AssignedStaffId,
+            BranchId = userSession.BranchId
+        };
+
+        uow.Parcels.Add(parcel);
+        await uow.SaveAsync();
+
+        var pricePerSqm = parcel.AreaSqm > 0 ? Math.Round(parcel.Price / parcel.AreaSqm, 2) : 0m;
+        var reservationPercent = parcel.Price > 0
+            ? Math.Round(parcel.ReservationFee / parcel.Price * 100m, 2)
+            : 0m;
+        return new ParcelDto(
+            parcel.Id, parcel.Label, parcel.Description, parcel.AreaSqm, parcel.Zoning, parcel.Price, pricePerSqm,
+            parcel.ReservationFee, reservationPercent, parcel.Status, parcel.GeoJson, parcel.Latitude, parcel.Longitude,
+            parcel.TaxDeclarationNo, parcel.TitleNo, parcel.Utilities, parcel.RoadAccess,
+            owner.Id, owner.Name, owner.Phone, owner.Email, owner.ListingAgreementOnFile, parcel.AssignedStaffId);
     }
 
     /// <summary>Moves a new lead (stage New) to its target one legal step at a time, so StageHistory is complete.</summary>

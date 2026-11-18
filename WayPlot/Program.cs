@@ -47,6 +47,7 @@ internal static class Program
                     view.Presenter = new ParcelMapPresenter(
                         view, sp.GetRequiredService<ParcelService>(), sp.GetRequiredService<LeadService>(),
                         sp.GetRequiredService<ContactService>(), sp.GetRequiredService<InteractionService>(),
+                        sp.GetRequiredService<ParcelPhotoService>(),
                         sp.GetRequiredService<TenantAccessPolicy>());
                     return view;
                 },
@@ -57,23 +58,26 @@ internal static class Program
                         view,
                         sp.GetRequiredService<ContactService>(),
                         sp.GetRequiredService<ContactImportService>(),
+                        sp.GetRequiredService<LeadService>(),
+                        sp.GetRequiredService<ParcelService>(),
+                        sp.GetRequiredService<WayPlot.domain.Services.Admin.StaffService>(),
+                        sp.GetRequiredService<DealService>(),
                         sp.GetRequiredService<ICurrentUser>(),
                         sp.GetRequiredService<TenantAccessPolicy>());
                     return view;
                 },
-                ["leads"] = () =>
+                ["pipeline"] = () =>
                 {
-                    var view = new LeadsView();
-                    view.Presenter = new LeadsPresenter(
-                        view, sp.GetRequiredService<LeadService>(), sp.GetRequiredService<InteractionService>(),
-                        sp.GetRequiredService<TenantAccessPolicy>());
-                    return view;
-                },
-                ["interactions"] = () =>
-                {
-                    var view = new InteractionsView();
-                    view.Presenter = new InteractionsPresenter(
-                        view, sp.GetRequiredService<InteractionService>(), sp.GetRequiredService<LeadService>(),
+                    var view = new PipelineView();
+                    view.Presenter = new PipelinePresenter(
+                        view,
+                        sp.GetRequiredService<LeadService>(),
+                        sp.GetRequiredService<InteractionService>(),
+                        sp.GetRequiredService<ParcelService>(),
+                        sp.GetRequiredService<DealService>(),
+                        sp.GetRequiredService<WayPlot.domain.Services.Admin.StaffService>(),
+                        sp.GetRequiredService<IPipelineStageProvider>(),
+                        sp.GetRequiredService<ICurrentUser>(),
                         sp.GetRequiredService<TenantAccessPolicy>());
                     return view;
                 },

@@ -134,6 +134,22 @@ public sealed record ParcelDto(
     bool OwnerListingAgreementOnFile = false,
     Guid? AssignedStaffId = null);
 
+public static class ParcelPhotoLimits
+{
+    public const int MaxPhotosPerParcel = 10;
+    public const long MaxSourceFileBytes = 15L * 1024 * 1024;
+    public const int MaxProcessedBytes = 2 * 1024 * 1024;
+    public static IReadOnlyList<string> SupportedExtensions { get; } =
+        Array.AsReadOnly(new[] { ".jpg", ".jpeg", ".png" });
+
+    public static bool SupportsFileName(string fileName) =>
+        SupportedExtensions.Contains(Path.GetExtension(fileName), StringComparer.OrdinalIgnoreCase);
+}
+
+public sealed record ParcelPhotoThumbnailDto(Guid Id, string FileName, int SizeBytes, byte[] ThumbnailBytes);
+
+public sealed record ParcelPhotoImageDto(string FileName, string ContentType, byte[] ImageBytes);
+
 // ---- Leads ----
 public sealed record AttachLeadRequest(Guid ContactId, Guid ParcelId, Guid? AssignedStaffId = null);
 
@@ -218,9 +234,10 @@ public static class InteractionLogKinds
     public const string Text = "Text";
     public const string Viewing = "Viewing";
     public const string Note = "Note";
+    public const string Email = "Email";
     public const string Complaint = "Complaint";
     public const string Feedback = "Feedback";
 
     public static IReadOnlyList<string> All { get; } =
-        [Call, Text, Viewing, Note, Complaint, Feedback];
+        [Call, Text, Viewing, Email, Note, Complaint, Feedback];
 }

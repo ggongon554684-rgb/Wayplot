@@ -18,6 +18,7 @@ internal sealed class TenantUnitOfWork : ITenantUnitOfWork
         _db = db;
         Owners = new OwnerRepository(db);
         Parcels = new ParcelRepository(db);
+        ParcelPhotos = new ParcelPhotoRepository(db);
         Contacts = new ContactRepository(db);
         Staff = new StaffRepository(db);
         Settings = new SettingRepository(db);
@@ -33,6 +34,7 @@ internal sealed class TenantUnitOfWork : ITenantUnitOfWork
 
     public IOwnerRepository Owners { get; }
     public IParcelRepository Parcels { get; }
+    public IParcelPhotoRepository ParcelPhotos { get; }
     public IContactRepository Contacts { get; }
     public IStaffRepository Staff { get; }
     public ISettingRepository Settings { get; }
@@ -51,9 +53,13 @@ internal sealed class TenantUnitOfWork : ITenantUnitOfWork
         {
             return await _db.SaveChangesAsync();
         }
-        catch (DbUpdateConcurrencyException ex) when (ex.Entries.Any(entry => entry.Entity is Parcel))
+        catch (DbUpdateConcurrencyException ex) when (ex.Entries.Any(entry => entry.Entity is Parcel or ParcelPhoto))
         {
             throw new ParcelConcurrencyConflictException(ex);
+        }
+        catch (DbUpdateConcurrencyException ex) when (ex.Entries.Any(entry => entry.Entity is Deal or Payment or Commission or ReferralBonus or Contact))
+        {
+            throw new DealLifecycleConcurrencyConflictException(ex);
         }
         catch (DbUpdateException ex) when (
             ex.Entries.Any(entry => entry.Entity is Parcel)
@@ -64,12 +70,27 @@ internal sealed class TenantUnitOfWork : ITenantUnitOfWork
             throw new ParcelLabelConflictException(ex);
         }
         catch (DbUpdateException ex) when (
+            ex.Entries.Any(entry => entry.Entity is Deal)
+            && ex.InnerException is SqlException sql
+            && sql.Number is 2601 or 2627
+            && sql.Message.Contains("UX_Deal_OneActivePerParcel", StringComparison.Ordinal))
+        {
+            throw new ActiveDealConflictException(ex);
+        }
+        catch (DbUpdateException ex) when (
             ex.InnerException is SqlException sql
             && sql.Number is 2601 or 2627
             && sql.Message.Contains("UX_Payment_Receipt", StringComparison.Ordinal))
         {
             throw new ReceiptNumberConflictException(ex);
         }
+    }
+
+    public async Task ExecuteInTransactionAsync(Func<Task> operation)
+    {
+        await using var transaction = await _db.Database.BeginTransactionAsync();
+        await operation();
+        await transaction.CommitAsync();
     }
 
     public ValueTask DisposeAsync() => _db.DisposeAsync();

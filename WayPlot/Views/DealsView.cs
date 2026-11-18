@@ -18,7 +18,9 @@ public partial class DealsView : UserControl, IDealsView
 
         btnRequestClosed.Click += async (_, _) => await RequestClosedAsync();
         btnConfirmClosed.Click += async (_, _) => await ConfirmClosedAsync();
+        btnReturnRequest.Click += async (_, _) => await ReturnRequestAsync();
         btnCancelDeal.Click += async (_, _) => await CancelDealAsync();
+        btnDefaultDeal.Click += async (_, _) => await DefaultDealAsync();
         btnRecordPayment.Click += async (_, _) => await RecordPaymentAsync();
         btnConfirmPayment.Click += async (_, _) => await ConfirmPaymentAsync();
         btnReturnPayment.Click += async (_, _) => await ReturnPaymentAsync();
@@ -78,7 +80,9 @@ public partial class DealsView : UserControl, IDealsView
         [
             new(btnRequestClosed, true, true, null, true),
             new(btnConfirmClosed, true, true, null, false),
+            new(btnReturnRequest, true, true, null, false),
             new(btnCancelDeal, true, true, null, false),
+            new(btnDefaultDeal, true, true, null, false),
             new(btnRecordPayment, true, true, null, true),
             new(btnConfirmPayment, true, true, null, false),
             new(btnReturnPayment, true, true, null, false)
@@ -104,7 +108,7 @@ public partial class DealsView : UserControl, IDealsView
         using var dialog = new CreateDealDialog
         {
             Candidates = candidates.Value,
-            SaveHandler = _presenter.CreateAsync
+            SaveHandler = _presenter.RequestClosedAsync
         };
         if (dialog.ShowDialog(FindForm()) != DialogResult.OK || dialog.Result is not { } result || !result.Ok)
             return;
@@ -115,7 +119,32 @@ public partial class DealsView : UserControl, IDealsView
     private async Task ConfirmClosedAsync()
     {
         if (_presenter is null || SelectedDealId is not { } dealId) return;
-        var result = await _presenter.ConfirmAsync(dealId);
+        using var dialog = new ConfirmClosedDialog();
+        if (dialog.ShowDialog(FindForm()) != DialogResult.OK) return;
+
+        var result = await _presenter.ConfirmClosedAsync(dealId, dialog.SelectedStatus);
+        if (IsDisposed) return;
+        if (!result.Ok)
+        {
+            ShowStatus(result.Message, true);
+            return;
+        }
+
+        await _presenter.LoadAsync(result.Message);
+    }
+
+    private async Task ReturnRequestAsync()
+    {
+        if (_presenter is null || SelectedDealId is not { } dealId) return;
+        if (MessageBox.Show(
+                FindForm(),
+                "Return this pending Closed request? The parcel will become Available.",
+                "Return request",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question) != DialogResult.Yes)
+            return;
+
+        var result = await _presenter.ReturnRequestAsync(dealId);
         if (IsDisposed) return;
         if (!result.Ok)
         {
@@ -128,24 +157,41 @@ public partial class DealsView : UserControl, IDealsView
 
     private async Task CancelDealAsync()
     {
-        if (_presenter is null || SelectedDealId is not { } dealId) return;
-        if (MessageBox.Show(
-                FindForm(),
-                "Cancel this unconfirmed deal? The parcel status will not change.",
-                "Cancel deal",
-                MessageBoxButtons.YesNo,
-                MessageBoxIcon.Question) != DialogResult.Yes)
+        await TerminateDealAsync(defaulted: false);
+    }
+
+    private async Task DefaultDealAsync()
+    {
+        await TerminateDealAsync(defaulted: true);
+    }
+
+    private async Task TerminateDealAsync(bool defaulted)
+    {
+        var presenter = _presenter;
+        if (presenter is null || SelectedDealId is not { } dealId) return;
+
+        var summary = await presenter.GetTerminationSummaryAsync(dealId);
+        if (IsDisposed) return;
+        if (!summary.Ok || summary.Value is null)
+        {
+            ShowStatus(summary.Message, true);
+            return;
+        }
+
+        using var dialog = new TerminateDealDialog(defaulted, summary.Value);
+        if (dialog.ShowDialog(FindForm()) != DialogResult.OK || dialog.Result is not { } input)
             return;
 
-        var result = await _presenter.CancelAsync(dealId);
+        var result = defaulted
+            ? await presenter.DefaultDealAsync(dealId, input.Reason, input.MoneyOutcome, input.RefundedAmount)
+            : await presenter.CancelDealAsync(dealId, input.Reason, input.MoneyOutcome, input.RefundedAmount);
         if (IsDisposed) return;
         if (!result.Ok)
         {
             ShowStatus(result.Message, true);
             return;
         }
-
-        await _presenter.LoadAsync(result.Message);
+        await presenter.LoadAsync(result.Message);
     }
 
     private async Task DealSelectionChangedAsync()
@@ -216,7 +262,7 @@ public partial class DealsView : UserControl, IDealsView
         foreach (var deal in deals)
         {
             var status = deal.Status == DealStatus.Current
-                ? deal.IsConfirmed ? "Confirmed" : "Awaiting confirmation"
+                ? deal.IsConfirmed ? "Current — confirmed" : "Current — pending"
                 : EnumText.Pretty(deal.Status);
             var item = new ListViewItem(deal.ContactName) { Tag = deal };
             item.SubItems.Add(deal.ParcelLabel);
@@ -291,13 +337,17 @@ public partial class DealsView : UserControl, IDealsView
     {
         var unavailable = new ActionAvailability(false, false, null);
         var actions = _presenter?.GetActionStates(SelectedDeal, SelectedPayment)
-            ?? new DealActionStates(unavailable, unavailable, unavailable, unavailable, unavailable, unavailable);
+            ?? new DealActionStates(
+                unavailable, unavailable, unavailable, unavailable,
+                unavailable, unavailable, unavailable, unavailable);
 
         ButtonStyle.ApplyAvailability(
         [
             new(btnRequestClosed, actions.RequestClosed.Visible, actions.RequestClosed.Enabled, actions.RequestClosed.DisabledReason, true),
             new(btnConfirmClosed, actions.ConfirmClosed.Visible, actions.ConfirmClosed.Enabled, actions.ConfirmClosed.DisabledReason, false),
+            new(btnReturnRequest, actions.ReturnRequest.Visible, actions.ReturnRequest.Enabled, actions.ReturnRequest.DisabledReason, false),
             new(btnCancelDeal, actions.CancelDeal.Visible, actions.CancelDeal.Enabled, actions.CancelDeal.DisabledReason, false),
+            new(btnDefaultDeal, actions.DefaultDeal.Visible, actions.DefaultDeal.Enabled, actions.DefaultDeal.DisabledReason, false),
             new(btnRecordPayment, actions.RecordPayment.Visible, actions.RecordPayment.Enabled, actions.RecordPayment.DisabledReason, true),
             new(btnConfirmPayment, actions.ConfirmPayment.Visible, actions.ConfirmPayment.Enabled, actions.ConfirmPayment.DisabledReason, false),
             new(btnReturnPayment, actions.ReturnPayment.Visible, actions.ReturnPayment.Enabled, actions.ReturnPayment.DisabledReason, false)

@@ -74,7 +74,7 @@ public sealed class ParcelService(ITenantUnitOfWorkFactory uowFactory, TenantAcc
         if (!fieldValidation.Ok)
             return ParcelResult.Fail(fieldValidation.Message);
 
-        var geometry = NormalizeGeometry(request.GeoJson, request.Latitude, request.Longitude);
+        var geometry = NormalizeGeometry(request.GeoJson, request.Latitude, request.Longitude, allowMarker: false);
         if (!geometry.Ok)
             return ParcelResult.Fail(geometry.Message);
 
@@ -153,7 +153,7 @@ public sealed class ParcelService(ITenantUnitOfWorkFactory uowFactory, TenantAcc
         GeometryValues? geometry = null;
         if (!string.IsNullOrWhiteSpace(request.GeoJson) || request.Latitude.HasValue || request.Longitude.HasValue)
         {
-            var validation = NormalizeGeometry(request.GeoJson, request.Latitude, request.Longitude);
+            var validation = NormalizeGeometry(request.GeoJson, request.Latitude, request.Longitude, allowMarker: true);
             if (!validation.Ok)
                 return ParcelResult.Fail(validation.Message);
             geometry = validation;
@@ -276,12 +276,12 @@ public sealed class ParcelService(ITenantUnitOfWorkFactory uowFactory, TenantAcc
                 $"Cannot archive parcel \"{parcel.Label}\": it has a deal with status {dealStatus}. Only Cancelled or Defaulted deals permit archiving.");
 
         var blockingLead = (await uow.Leads.ListStagesByParcelAsync(parcelId))
-            .Where(stage => stage != LeadStage.Lost)
+            .Where(stage => stage is not (LeadStage.Lost or LeadStage.Closed))
             .Select(stage => (LeadStage?)stage)
             .FirstOrDefault();
         if (blockingLead is { } leadStage)
             return ServiceResult<bool>.Fail(
-                $"Cannot archive parcel \"{parcel.Label}\": it has a lead at stage {leadStage}. Every lead must be Lost first.");
+                $"Cannot archive parcel \"{parcel.Label}\": it has a lead at stage {leadStage}. Every open lead must be Lost first.");
 
         parcel.IsDeleted = true;
         try
@@ -349,7 +349,11 @@ public sealed class ParcelService(ITenantUnitOfWorkFactory uowFactory, TenantAcc
     private static string DuplicateLabelMessage(string label) =>
         $"A parcel labeled \"{label}\" already exists. Labels remain reserved after a parcel is archived.";
 
-    private static GeometryValues NormalizeGeometry(string? geoJson, double? latitude, double? longitude)
+    private static GeometryValues NormalizeGeometry(
+        string? geoJson,
+        double? latitude,
+        double? longitude,
+        bool allowMarker)
     {
         if (!string.IsNullOrWhiteSpace(geoJson))
         {
@@ -360,6 +364,13 @@ public sealed class ParcelService(ITenantUnitOfWorkFactory uowFactory, TenantAcc
             {
                 using var document = JsonDocument.Parse(geoJson);
                 var root = document.RootElement;
+                if (!allowMarker
+                    && root.ValueKind == JsonValueKind.Object
+                    && root.TryGetProperty("type", out var geometryType)
+                    && geometryType.ValueKind == JsonValueKind.String
+                    && geometryType.GetString() == "Point")
+                    return GeometryValues.Fail("New parcels must use a polygon boundary; marker geometry cannot be used to create a parcel.");
+
                 if (root.ValueKind != JsonValueKind.Object
                     || !root.TryGetProperty("type", out var type)
                     || type.ValueKind != JsonValueKind.String
@@ -398,8 +409,10 @@ public sealed class ParcelService(ITenantUnitOfWorkFactory uowFactory, TenantAcc
 
         if (latitude.HasValue != longitude.HasValue)
             return GeometryValues.Fail("Enter both latitude and longitude for a marker.");
+        if (latitude.HasValue && !allowMarker)
+            return GeometryValues.Fail("New parcels must use a polygon boundary; marker geometry cannot be used to create a parcel.");
         if (latitude is not { } markerLatitude || longitude is not { } markerLongitude)
-            return GeometryValues.Fail("Draw a parcel boundary or place a marker.");
+            return GeometryValues.Fail("Draw a parcel polygon boundary.");
 
         var marker = new[] { new ParcelCoordinate(markerLongitude, markerLatitude) };
         var markerValidation = ParcelGeometry.Validate("marker", marker);

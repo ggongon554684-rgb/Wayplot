@@ -107,12 +107,21 @@
     if (!layer) {
       return;
     }
+    if (typeof layer.getLatLng === "function") {
+      map.setView(layer.getLatLng(), 18);
+      return;
+    }
     const bounds = typeof layer.getBounds === "function" ? layer.getBounds() : null;
     if (bounds && bounds.isValid()) {
-      map.fitBounds(bounds, { padding: [40, 40], maxZoom: 18 });
-    } else if (typeof layer.getLatLng === "function") {
-      map.setView(layer.getLatLng(), 18);
+      map.fitBounds(bounds, { padding: [40, 40], maxZoom: 19 });
     }
+  }
+
+  function focusParcel(parcelId) {
+    requestAnimationFrame(() => {
+      map.invalidateSize({ pan: false });
+      requestAnimationFrame(() => fitParcel(parcelId));
+    });
   }
 
   function loadParcels(featureCollectionJson) {
@@ -286,9 +295,6 @@
   function handleModeClick(event) {
     if (activeMode === "polygon") {
       addVertex(event.latlng);
-    } else if (activeMode === "marker") {
-      modePoints = [{ longitude: event.latlng.lng, latitude: event.latlng.lat }];
-      finishMode();
     }
   }
 
@@ -323,12 +329,9 @@
     postModeState();
   }
 
-  function startDrawing(mode) {
-    if (mode !== "polygon" && mode !== "marker") {
-      return;
-    }
+  function startDrawing() {
     setMessage(null);
-    startMode(mode, mode, null, []);
+    startMode("polygon", "polygon", null, []);
   }
 
   function geometryPoints(feature) {
@@ -439,10 +442,12 @@
         selectParcel(typeof message.parcelId === "string" ? message.parcelId : null);
         break;
       case "fitAll":
+        fitAll();
+        break;
+      case "focusParcel":
         if (typeof message.parcelId === "string") {
-          fitParcel(message.parcelId);
-        } else {
-          fitAll();
+          selectParcel(message.parcelId);
+          focusParcel(message.parcelId);
         }
         break;
       case "note":
@@ -452,7 +457,7 @@
         setMessage(message.text);
         break;
       case "startDraw":
-        startDrawing(message.mode);
+        startDrawing();
         break;
       case "startEditGeometry":
         if (typeof message.parcelId === "string") {

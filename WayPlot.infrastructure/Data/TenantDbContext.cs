@@ -30,6 +30,7 @@ public class TenantDbContext : DbContext
     public DbSet<Owner> Owners => Set<Owner>();
     public DbSet<Parcel> Parcels => Set<Parcel>();
     public DbSet<ParcelPhoto> ParcelPhotos => Set<ParcelPhoto>();
+    public DbSet<ParcelPhotoData> ParcelPhotoData => Set<ParcelPhotoData>();
     public DbSet<Contact> Contacts => Set<Contact>();
     public DbSet<DuplicateInquiry> DuplicateInquiries => Set<DuplicateInquiry>();
     public DbSet<Lead> Leads => Set<Lead>();
@@ -55,6 +56,7 @@ public class TenantDbContext : DbContext
         c.Properties<InteractionChannel>().HaveConversion<string>().HaveMaxLength(30);
         c.Properties<ComplaintStatus>().HaveConversion<string>().HaveMaxLength(30);
         c.Properties<DealStatus>().HaveConversion<string>().HaveMaxLength(30);
+        c.Properties<DealMoneyOutcome>().HaveConversion<string>().HaveMaxLength(30);
         c.Properties<PaymentStatus>().HaveConversion<string>().HaveMaxLength(30);
         c.Properties<PaymentMethod>().HaveConversion<string>().HaveMaxLength(30);
         c.Properties<CommissionStatus>().HaveConversion<string>().HaveMaxLength(30);
@@ -64,7 +66,7 @@ public class TenantDbContext : DbContext
     protected override void OnModelCreating(ModelBuilder b)
     {
         // Soft-delete filter and the Version concurrency token on every syncable table.
-        Base<Staff>(b); Base<Branch>(b); Base<Setting>(b); Base<Owner>(b); Base<Parcel>(b); Base<ParcelPhoto>(b);
+        Base<Staff>(b); Base<Branch>(b); Base<Setting>(b); Base<Owner>(b); Base<Parcel>(b); Base<ParcelPhoto>(b); Base<ParcelPhotoData>(b);
         Base<Contact>(b); Base<DuplicateInquiry>(b); Base<Lead>(b); Base<Interaction>(b); Base<StageHistory>(b); Base<Deal>(b);
         Base<Payment>(b); Base<Commission>(b); Base<ReferralBonus>(b); Base<Document>(b); Base<LandownerPayout>(b);
 
@@ -93,6 +95,13 @@ public class TenantDbContext : DbContext
             e.HasIndex(p => p.Label).IsUnique().HasFilter("[IsDeleted] = 0").HasDatabaseName("UX_Parcel_Label");
             e.HasIndex(p => p.AssignedStaffId);
             e.HasOne<Staff>().WithMany().HasForeignKey(p => p.AssignedStaffId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        b.Entity<ParcelPhotoData>(e =>
+        {
+            e.HasIndex(data => data.ParcelPhotoId).IsUnique();
+            e.HasOne<ParcelPhoto>().WithOne().HasForeignKey<ParcelPhotoData>(data => data.ParcelPhotoId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         b.Entity<Contact>(e =>
@@ -130,6 +139,8 @@ public class TenantDbContext : DbContext
 
         b.Entity<Deal>(e =>
         {
+            e.Property(d => d.TerminationReason).HasMaxLength(500);
+            e.Property(d => d.RefundedAmount).HasPrecision(18, 2);
             // Deal contact and parcel are immutable snapshots of the lead at deal creation.
             e.HasOne(d => d.Lead).WithMany()
                 .HasForeignKey(d => new { d.LeadId, d.ContactId, d.ParcelId })

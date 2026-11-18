@@ -10,7 +10,15 @@ public sealed record DealCandidateItem(
     decimal ParcelPrice,
     decimal ReservationFee);
 
-public sealed record CreateDealRequest(Guid LeadId, decimal? Price, decimal DownPayment = 0);
+public sealed record CreateDealRequest(
+    Guid LeadId,
+    decimal? Price,
+    decimal Discount = 0,
+    decimal? ReservationFee = null,
+    decimal DownPayment = 0,
+    bool IsInstallment = false,
+    int InstallmentCount = 0,
+    int DueDay = 1);
 
 public sealed record DealListItem(
     Guid Id,
@@ -20,6 +28,7 @@ public sealed record DealListItem(
     LeadStage LeadStage,
     bool CloseRequested,
     decimal Price,
+    decimal Discount,
     decimal DownPayment,
     decimal ReservationFee,
     decimal ReservationFeeDue,
@@ -29,9 +38,20 @@ public sealed record DealListItem(
     bool IsActive,
     DateTime CreatedAtUtc,
     ParcelStatus ParcelStatus,
-    bool HasPaymentActivity);
+    bool HasPaymentActivity,
+    bool HasAwaitingPayment);
 
-public sealed record RecordPaymentRequest(Guid DealId, decimal Amount, PaymentMethod Method);
+public sealed record DealTerminationSummary(
+    decimal ConfirmedPaymentsTotal,
+    int UnpaidPayoutCount,
+    int PaidPayoutCount);
+
+public sealed record RecordPaymentRequest(
+    Guid DealId,
+    decimal Amount,
+    DateTime PaidAtUtc,
+    PaymentMethod Method,
+    string ReceiptNo);
 
 public sealed record PaymentListItem(
     Guid Id,

@@ -100,13 +100,14 @@ public partial class LeafletMapControl : UserControl, IParcelMapControl
     {
         if (!_pageReady)
         {
+            _fitWhenReady = false;
             _parcelToFitWhenReady = parcelId;
             return;
         }
 
         _fitWhenReady = false;
         _parcelToFitWhenReady = null;
-        PostMessage(new { type = "fitAll", parcelId = parcelId.ToString("D") });
+        PostMessage(new { type = "focusParcel", parcelId = parcelId.ToString("D") });
     }
 
     public void SetNote(string? text)
@@ -121,12 +122,7 @@ public partial class LeafletMapControl : UserControl, IParcelMapControl
         PostMessage(new { type = "message", text });
     }
 
-    public void StartDraw(string mode)
-    {
-        if (mode is not ("polygon" or "marker"))
-            throw new ArgumentOutOfRangeException(nameof(mode), "Choose polygon or marker mode.");
-        PostModeCommand(new { type = "startDraw", mode });
-    }
+    public void StartDraw() => PostModeCommand(new { type = "startDraw" });
 
     public void StartEditGeometry(Guid parcelId)
     {
@@ -265,11 +261,11 @@ public partial class LeafletMapControl : UserControl, IParcelMapControl
                     MapBackgroundClicked?.Invoke(this, EventArgs.Empty);
                     break;
                 case "drawComplete":
-                    if (TryReadGeometry(document.RootElement, out var drawKind, out var drawPoints))
+                    if (TryReadGeometry(document.RootElement, allowMarker: false, out var drawKind, out var drawPoints))
                         DrawComplete?.Invoke(this, new ParcelGeometryEventArgs(drawKind, drawPoints));
                     break;
                 case "geometryEditComplete":
-                    if (TryReadGeometry(document.RootElement, out var editKind, out var editPoints)
+                    if (TryReadGeometry(document.RootElement, allowMarker: true, out var editKind, out var editPoints)
                         && document.RootElement.TryGetProperty("parcelId", out var editIdValue)
                         && editIdValue.ValueKind == JsonValueKind.String
                         && Guid.TryParse(editIdValue.GetString(), out var editParcelId)
@@ -288,7 +284,7 @@ public partial class LeafletMapControl : UserControl, IParcelMapControl
                     if (document.RootElement.TryGetProperty("mode", out var modeValue)
                         && modeValue.ValueKind == JsonValueKind.String
                         && modeValue.GetString() is { } mode
-                        && mode is "none" or "polygon" or "marker" or "editGeometry"
+                        && mode is "none" or "polygon" or "editGeometry"
                         && document.RootElement.TryGetProperty("vertexCount", out var countValue)
                         && countValue.TryGetInt32(out var vertexCount)
                         && vertexCount >= 0)
@@ -306,6 +302,7 @@ public partial class LeafletMapControl : UserControl, IParcelMapControl
 
     private static bool TryReadGeometry(
         JsonElement message,
+        bool allowMarker,
         out string kind,
         out IReadOnlyList<ParcelCoordinate> points)
     {
@@ -314,6 +311,7 @@ public partial class LeafletMapControl : UserControl, IParcelMapControl
         if (!message.TryGetProperty("kind", out var kindValue)
             || kindValue.ValueKind != JsonValueKind.String
             || kindValue.GetString() is not ("polygon" or "marker")
+            || (!allowMarker && kindValue.GetString() != "polygon")
             || !message.TryGetProperty("points", out var pointsValue)
             || pointsValue.ValueKind != JsonValueKind.Array)
             return false;

@@ -137,6 +137,7 @@ Alternative flows
 • Subscription expires: the tenant’s workspace becomes read-only, and the Tenant Admin is notified.
 Offline Behavior
 Agents often work on site, where signal is poor. WayPlot keeps a local copy of recent data on each computer. Reading works offline, the main daily actions are saved as pending sync and upload when the connection returns, and everything else needs a connection.
+Parcel photos are added, removed, and viewed only while connected; they are not cached or queued for offline sync.
 FeatureBehavior without internetView leads, contacts, parcels, notes, history, balances, and commissionsWorks from the local copyCapture a lead, log a call or note, change a pipeline stage, log a viewingWorks, saved locally as pending syncPlot or edit a parcelWorks, saved locally as pending syncMap background tilesOnly areas viewed earlier are shown. Parcel shapes still drawSend SMS, email, or an approved promoQueued as will send when online. A promo past its valid dates needs approval againLogin for the first time, plan changes, tenant registrationNeed a connectionSubscription checkA grace period applies (for example 7 days offline) before the app becomes read-onlyRecord a payment received, attach a documentWorks, saved locally as pending sync. Documents upload when onlineConfirm a payment, approve or pay a commission, cancel or default a dealNeeds a connection, so the same money is never approved twice
 Sync conflicts
 • Every change records the time and the user who made it.

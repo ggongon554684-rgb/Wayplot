@@ -38,7 +38,17 @@ public class ParcelPhoto : BaseEntity
     public Guid ParcelId { get; set; }
     public Parcel Parcel { get; set; } = null!;
     public string FileName { get; set; } = string.Empty;
+    /// <summary>Database-backed locator: "db:" followed by this photo's Id.</summary>
     public string StoragePath { get; set; } = string.Empty;
+}
+
+public class ParcelPhotoData : BaseEntity
+{
+    public Guid ParcelPhotoId { get; set; }
+    public string ContentType { get; set; } = "image/jpeg";
+    public int SizeBytes { get; set; }
+    public byte[] ImageBytes { get; set; } = [];
+    public byte[] ThumbnailBytes { get; set; } = [];
 }
 
 public class Contact : BaseEntity

@@ -91,6 +91,24 @@ public sealed class TenantAccessPolicy(ICurrentUser user)
             : "Your role cannot access tenant parcels.");
     }
 
+    public RuleResult CanReadParcelPhotos(Parcel parcel)
+    {
+        var permission = RequireParcelRead();
+        if (!permission.Ok)
+            return permission;
+
+        if (user.Role == Roles.BranchManager)
+        {
+            if (user.BranchId is not { } branchId)
+                return RuleResult.Fail(
+                    "Cannot view parcel photos: your staff account has no assigned branch. Ask your Tenant Admin.");
+            if (parcel.BranchId != branchId)
+                return RuleResult.Fail("Cannot view parcel photos: this parcel is outside your branch.");
+        }
+
+        return RuleResult.Success();
+    }
+
     public RuleResult CanPlotParcel()
     {
         if (user.Role is Roles.Agent or Roles.TenantAdmin)

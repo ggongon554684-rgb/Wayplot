@@ -2,8 +2,10 @@ using System.Text.Json;
 using WayPlot.domain.Common;
 using WayPlot.domain.Contracts;
 using WayPlot.domain.Entities;
+using WayPlot.domain.Events;
 using WayPlot.domain.Interfaces;
 using WayPlot.domain.Repositories;
+using WayPlot.domain.Services.DataCollection;
 
 namespace WayPlot.domain.Services.MainTransaction;
 
@@ -11,7 +13,9 @@ public sealed class CommissionService(
     ITenantUnitOfWorkFactory uowFactory,
     ICurrentUser user,
     IClock clock,
-    ITenantFeatures features)
+    ITenantFeatures features,
+    TenantAccessPolicy access,
+    IDomainEventDispatcher events)
 {
     private const string RulesSettingKey = "deals.commission-rules";
     private const string CompanyRecipientRole = "Company";
@@ -19,6 +23,9 @@ public sealed class CommissionService(
 
     public async Task<ServiceResult<CommissionRulesSnapshot>> GetRulesAsync()
     {
+        var scope = access.GetDataReadScope("commission rules");
+        if (!scope.Ok)
+            return ServiceResult<CommissionRulesSnapshot>.Fail(scope.Message);
         if (user.Role != Roles.TenantAdmin)
             return ServiceResult<CommissionRulesSnapshot>.Fail("Only a Tenant Admin can view commission rules.");
 
@@ -31,6 +38,9 @@ public sealed class CommissionService(
 
     public async Task<ServiceResult<CommissionRulesSnapshot>> SaveRulesAsync(CommissionRulesRequest request)
     {
+        var permission = access.RequireDataMutation("change commission rules");
+        if (!permission.Ok)
+            return ServiceResult<CommissionRulesSnapshot>.Fail(permission.Message);
         if (user.Role != Roles.TenantAdmin)
             return ServiceResult<CommissionRulesSnapshot>.Fail("Only a Tenant Admin can change commission rules.");
 
@@ -75,31 +85,14 @@ public sealed class CommissionService(
 
     public async Task<ServiceResult<IReadOnlyList<PayoutListItem>>> ListAsync()
     {
-        if (user.Role == Roles.SuperAdmin)
-            return ServiceResult<IReadOnlyList<PayoutListItem>>.Fail("Super Admin cannot access tenant commissions or referral bonuses.");
-
-        Guid? staffId = null;
-        Guid? branchId = null;
-        var includeCompanyShares = user.Role == Roles.TenantAdmin;
-        if (user.Role == Roles.Agent)
-        {
-            if (user.UserId is not { } currentStaffId)
-                return ServiceResult<IReadOnlyList<PayoutListItem>>.Fail("Your staff account could not be identified.");
-            staffId = currentStaffId;
-        }
-        else if (user.Role == Roles.BranchManager)
-        {
-            if (user.BranchId is not { } currentBranchId)
-                return ServiceResult<IReadOnlyList<PayoutListItem>>.Fail("Your staff account has no assigned branch. Ask your Tenant Admin.");
-            if (user.UserId is not { } currentStaffId)
-                return ServiceResult<IReadOnlyList<PayoutListItem>>.Fail("Your staff account could not be identified.");
-            staffId = currentStaffId;
-            branchId = currentBranchId;
-        }
-        else if (user.Role != Roles.TenantAdmin)
-        {
-            return ServiceResult<IReadOnlyList<PayoutListItem>>.Fail("Your role cannot access commissions or referral bonuses.");
-        }
+        var scope = access.GetDataReadScope("commissions and referral bonuses");
+        if (!scope.Ok)
+            return ServiceResult<IReadOnlyList<PayoutListItem>>.Fail(scope.Message);
+        var staffId = scope.Value.Kind == TenantDataScopeKind.Agent
+            ? scope.Value.StaffId
+            : scope.Value.Kind == TenantDataScopeKind.Branch ? access.CurrentStaffId : null;
+        var branchId = scope.Value.Kind == TenantDataScopeKind.Branch ? scope.Value.BranchId : null;
+        var includeCompanyShares = scope.Value.Kind == TenantDataScopeKind.Tenant;
 
         if (user.Role == Roles.TenantAdmin)
         {
@@ -109,9 +102,7 @@ public sealed class CommissionService(
         }
 
         await using var uow = uowFactory.Create();
-        if (!TryReadRules(await uow.Settings.GetForDisplayAsync(RulesSettingKey), out var rules))
-            return ServiceResult<IReadOnlyList<PayoutListItem>>.Fail("Commission rule history could not be read. No changes were made.");
-
+        var payableTiming = await GetPayableTimingAsync(uow);
         var commissions = await uow.Commissions.ListAsync(staffId, branchId, includeCompanyShares);
         var bonuses = await uow.ReferralBonuses.ListAsync(staffId, branchId);
         var staffIds = commissions
@@ -133,13 +124,13 @@ public sealed class CommissionService(
                 item.Id, item.DealId, PayoutKind.Commission,
                 item.Deal.Lead.Contact.FullName, item.Deal.Lead.Parcel.Label,
                 recipientName, item.RecipientRole, item.Amount, item.Status,
-                item.CreatedAtUtc, item.PaidAtUtc, item.BranchId, item.Deal, rules.Current);
+                item.CreatedAtUtc, item.PaidAtUtc, item.BranchId, item.Deal, payableTiming);
         }).Concat(bonuses.Select(item =>
             ToPayoutItem(
                 item.Id, item.DealId, PayoutKind.ReferralBonus,
                 item.Deal.Lead.Contact.FullName, item.Deal.Lead.Parcel.Label,
                 item.ReferrerName, "Referral", item.Amount, item.Status,
-                item.CreatedAtUtc, item.PaidAtUtc, item.BranchId, item.Deal, rules.Current)))
+                item.CreatedAtUtc, item.PaidAtUtc, item.BranchId, item.Deal, payableTiming)))
             .OrderByDescending(item => item.CreatedAtUtc)
             .ThenByDescending(item => item.Id)
             .ToList();
@@ -168,12 +159,21 @@ public sealed class CommissionService(
         return await AddMissingPayoutsAsync(uow, deal, current, commissionExists, bonusExists);
     }
 
-    internal async Task HandleDealEndedAsync(ITenantUnitOfWork uow, Guid dealId)
+    internal async Task<IReadOnlyList<PayoutChanged>> HandleDealEndedAsync(
+        ITenantUnitOfWork uow, Guid dealId, DateTime occurredAtUtc)
     {
+        var changed = new List<PayoutChanged>();
         foreach (var commission in await uow.Commissions.ListByDealAsync(dealId))
-            UpdateEndedStatus(commission);
+        {
+            if (UpdateEndedStatus(commission))
+                changed.Add(new PayoutChanged(dealId, commission.Id, PayoutKind.Commission, occurredAtUtc));
+        }
         foreach (var bonus in await uow.ReferralBonuses.ListByDealAsync(dealId))
-            UpdateEndedStatus(bonus);
+        {
+            if (UpdateEndedStatus(bonus))
+                changed.Add(new PayoutChanged(dealId, bonus.Id, PayoutKind.ReferralBonus, occurredAtUtc));
+        }
+        return changed;
     }
 
     private async Task<ServiceResult<bool>> EnsureMissingFullyPaidAsync()
@@ -196,7 +196,14 @@ public sealed class CommissionService(
                 return result;
         }
 
-        await uow.SaveAsync();
+        try
+        {
+            await uow.SaveAsync();
+        }
+        catch (DealLifecycleConcurrencyConflictException)
+        {
+            return ServiceResult<bool>.Fail("Payout generation was interrupted by a concurrent change. Reload and try again.");
+        }
         return ServiceResult<bool>.Success(true);
     }
 
@@ -226,9 +233,12 @@ public sealed class CommissionService(
 
         if (!commissionExists)
         {
-            var total = CalculateAmount(deal.Price, rules.CommissionType, rules.CommissionAmount);
+            var netPrice = deal.Price - deal.Discount;
+            var total = CalculateAmount(netPrice, rules.CommissionType, rules.CommissionAmount);
             var agentAmount = decimal.Round(total * rules.AgentSharePercent / 100m, 2, MidpointRounding.AwayFromZero);
             var managerAmount = decimal.Round(total * rules.BranchManagerSharePercent / 100m, 2, MidpointRounding.AwayFromZero);
+            if (agentAmount + managerAmount > total)
+                managerAmount = total - agentAmount;
             var companyAmount = total - agentAmount - managerAmount;
 
             if (agentAmount > 0)
@@ -245,7 +255,7 @@ public sealed class CommissionService(
             var referrer = await ResolveReferrerAsync(uow, contact);
             if (referrer.Error is not null)
                 return ServiceResult<bool>.Fail(referrer.Error);
-            var amount = CalculateAmount(deal.Price, rules.ReferralType, rules.ReferralAmount);
+            var amount = CalculateAmount(deal.Price - deal.Discount, rules.ReferralType, rules.ReferralAmount);
             if (amount <= 0)
                 return ServiceResult<bool>.Fail("The referral rule produces no payable amount for this deal.");
 
@@ -291,50 +301,69 @@ public sealed class CommissionService(
 
     private async Task<ServiceResult<bool>> ChangeStatusAsync(PayoutKind kind, Guid payoutId, bool markPaid)
     {
+        var permission = access.RequireDataMutation(markPaid ? "pay a commission or referral bonus" : "approve a commission or referral bonus");
+        if (!permission.Ok)
+            return ServiceResult<bool>.Fail(permission.Message);
         if (user.Role != Roles.TenantAdmin)
             return ServiceResult<bool>.Fail("Only a Tenant Admin can approve or pay commissions and referral bonuses.");
         if (!Enum.IsDefined(kind))
             return ServiceResult<bool>.Fail("Select a valid payout type.");
 
         await using var uow = uowFactory.Create();
-        if (!TryReadRules(await uow.Settings.GetForDisplayAsync(RulesSettingKey), out var rules)
-            || rules.Current is not { } current)
-            return ServiceResult<bool>.Fail("Configure valid payout rules before approving or paying.");
+        var payableTiming = markPaid
+            ? await GetPayableTimingAsync(uow)
+            : CommissionPayableTiming.AfterDownPayment;
+        Guid dealId;
+        var now = clock.UtcNow;
 
         if (kind == PayoutKind.Commission)
         {
             var commission = await uow.Commissions.GetAsync(payoutId);
             if (commission is null)
                 return ServiceResult<bool>.Fail("That commission was not found.");
+            dealId = commission.DealId;
             var expected = markPaid ? CommissionStatus.Approved : CommissionStatus.Pending;
             if (commission.Status != expected)
                 return ServiceResult<bool>.Fail(markPaid
                     ? "Only an approved commission can be marked Paid."
                     : "Only a pending commission can be approved.");
-            if (!IsPayable(commission.Deal, current, out var reason))
+            if (markPaid && PaidBlockedReason(commission.Deal, payableTiming) is { } reason)
                 return ServiceResult<bool>.Fail(reason);
 
             commission.Status = markPaid ? CommissionStatus.Paid : CommissionStatus.Approved;
-            if (markPaid) commission.PaidAtUtc = clock.UtcNow;
+            if (markPaid) commission.PaidAtUtc = now;
         }
         else
         {
             var bonus = await uow.ReferralBonuses.GetAsync(payoutId);
             if (bonus is null)
                 return ServiceResult<bool>.Fail("That referral bonus was not found.");
+            dealId = bonus.DealId;
             var expected = markPaid ? CommissionStatus.Approved : CommissionStatus.Pending;
             if (bonus.Status != expected)
                 return ServiceResult<bool>.Fail(markPaid
                     ? "Only an approved referral bonus can be marked Paid."
                     : "Only a pending referral bonus can be approved.");
-            if (!IsPayable(bonus.Deal, current, out var reason))
+            if (markPaid && PaidBlockedReason(bonus.Deal, payableTiming) is { } reason)
                 return ServiceResult<bool>.Fail(reason);
 
             bonus.Status = markPaid ? CommissionStatus.Paid : CommissionStatus.Approved;
-            if (markPaid) bonus.PaidAtUtc = clock.UtcNow;
+            if (markPaid) bonus.PaidAtUtc = now;
         }
 
-        await uow.SaveAsync();
+        try
+        {
+            await uow.SaveAsync();
+        }
+        catch (DealLifecycleConcurrencyConflictException)
+        {
+            return ServiceResult<bool>.Fail("The payout was not changed because it changed concurrently. Reload and try again.");
+        }
+        catch (ParcelConcurrencyConflictException)
+        {
+            return ServiceResult<bool>.Fail("The payout was not changed because the parcel changed concurrently. Reload and try again.");
+        }
+        await events.DispatchAsync(new PayoutChanged(dealId, payoutId, kind, now));
         return ServiceResult<bool>.Success(true, markPaid ? "Payout marked Paid." : "Payout approved.");
     }
 
@@ -352,46 +381,72 @@ public sealed class CommissionService(
         DateTime? paidAtUtc,
         Guid? branchId,
         Deal deal,
-        CommissionRulesVersion? rules)
+        CommissionPayableTiming payableTiming)
     {
-        var reason = rules is null
-            ? "Commission rules are not configured."
-            : IsPayable(deal, rules, out var blocked) ? null : blocked;
+        var paidBlockedReason = PaidBlockedReason(deal, payableTiming);
         return new PayoutListItem(
             id, dealId, kind, contactName, parcelLabel, recipientName, recipientRole,
             amount, status, createdAtUtc, paidAtUtc,
-            status == CommissionStatus.Pending && reason is null,
-            reason,
-            status == CommissionStatus.Approved && reason is null,
+            status == CommissionStatus.Pending,
+            null,
+            status == CommissionStatus.Approved && paidBlockedReason is null,
+            paidBlockedReason,
             branchId);
     }
 
-    private static bool IsPayable(Deal deal, CommissionRulesVersion rules, out string reason)
+    private static string? PaidBlockedReason(Deal deal, CommissionPayableTiming payableTiming)
     {
         if (deal.Status is DealStatus.Cancelled or DealStatus.Defaulted)
-        {
-            reason = "This deal is cancelled or defaulted.";
-            return false;
-        }
+            return "This deal is cancelled or defaulted.";
         if (deal.ConfirmedAtUtc is null)
-        {
-            reason = "The deal must be confirmed before its payout is payable.";
-            return false;
-        }
-        if (rules.PayableTiming == CommissionPayableTiming.AfterDownPayment)
+            return "The deal must be confirmed before its payout can be Paid.";
+        if (payableTiming == CommissionPayableTiming.AfterDownPayment && deal.DownPayment > 0)
         {
             var confirmed = deal.Payments
                 .Where(payment => payment.Status == PaymentStatus.Confirmed)
                 .Sum(payment => payment.Amount);
             if (confirmed < deal.DownPayment)
-            {
-                reason = "Wait until the down payment is confirmed.";
-                return false;
-            }
+                return "Wait until confirmed payments reach the deal's down payment.";
         }
 
-        reason = string.Empty;
-        return true;
+        return null;
+    }
+
+    private async Task<CommissionPayableTiming> GetPayableTimingAsync(ITenantUnitOfWork uow) =>
+        ReadPayableTiming(await uow.Settings.GetForDisplayAsync(RulesSettingKey));
+
+    private static CommissionPayableTiming ReadPayableTiming(Setting? setting)
+    {
+        const CommissionPayableTiming defaultTiming = CommissionPayableTiming.AfterDownPayment;
+        if (setting is null || string.IsNullOrWhiteSpace(setting.Value))
+            return defaultTiming;
+
+        try
+        {
+            using var document = JsonDocument.Parse(setting.Value);
+            if (!document.RootElement.TryGetProperty("History", out var history)
+                || history.ValueKind != JsonValueKind.Array
+                || history.GetArrayLength() == 0)
+                return defaultTiming;
+
+            var latest = history.EnumerateArray().Last();
+            if (!latest.TryGetProperty(nameof(CommissionRulesVersion.PayableTiming), out var value))
+                return defaultTiming;
+            if (value.ValueKind == JsonValueKind.Number
+                && value.TryGetInt32(out var numeric)
+                && Enum.IsDefined(typeof(CommissionPayableTiming), numeric))
+                return (CommissionPayableTiming)numeric;
+            if (value.ValueKind == JsonValueKind.String
+                && Enum.TryParse<CommissionPayableTiming>(value.GetString(), out var parsed)
+                && Enum.IsDefined(parsed))
+                return parsed;
+        }
+        catch (JsonException)
+        {
+            return defaultTiming;
+        }
+
+        return defaultTiming;
     }
 
     private static Commission NewCommission(
@@ -419,20 +474,34 @@ public sealed class CommissionService(
         || !string.IsNullOrWhiteSpace(contact.ReferrerName)
         || !string.IsNullOrWhiteSpace(contact.ReferrerPhone);
 
-    private static void UpdateEndedStatus(Commission commission)
+    private static bool UpdateEndedStatus(Commission commission)
     {
         if (commission.Status is CommissionStatus.Pending or CommissionStatus.Approved)
+        {
             commission.Status = CommissionStatus.Cancelled;
+            return true;
+        }
         else if (commission.Status == CommissionStatus.Paid)
+        {
             commission.Status = CommissionStatus.PaidNeedsReview;
+            return true;
+        }
+        return false;
     }
 
-    private static void UpdateEndedStatus(ReferralBonus bonus)
+    private static bool UpdateEndedStatus(ReferralBonus bonus)
     {
         if (bonus.Status is CommissionStatus.Pending or CommissionStatus.Approved)
+        {
             bonus.Status = CommissionStatus.Cancelled;
+            return true;
+        }
         else if (bonus.Status == CommissionStatus.Paid)
+        {
             bonus.Status = CommissionStatus.PaidNeedsReview;
+            return true;
+        }
+        return false;
     }
 
     private string? ValidateRules(CommissionRulesRequest request)

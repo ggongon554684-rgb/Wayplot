@@ -22,11 +22,10 @@ public sealed class MainShellPresenter(LoginResult login, ITenantFeatures featur
             [
                 Tab("parcel-map", "Parcel map", features.DataCollection),
                 Tab("contacts", "Contacts", features.DataCollection),
-                Tab("leads", "Leads", features.MainTransaction),
-                Tab("interactions", "Interactions", features.MainTransaction),
-                Tab("deals", "Deals & payments", features.DealsPayments)
+                Tab("pipeline", "Pipeline", features.MainTransaction)
             ]);
-            tabs.Add(Tab("import", "Import", features.DataCollection));
+            if (login.Role != Roles.Agent)
+                tabs.Add(Tab("deals", "Deals & payments", features.DealsPayments));
             tabs.Add(Tab("commissions", "Commissions", features.DealsPayments));
         }
         tabs.Add(Tab("intelligence", "Intelligence", features.BusinessIntelligence, "Available in Tier B"));

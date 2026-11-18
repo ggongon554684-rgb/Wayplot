@@ -9,11 +9,12 @@ partial class ParcelMapView
     private FlowLayoutPanel mapToolbar = null!;
     private UI.LeafletMapControl mapControl = null!;
     private Button btnNewParcel = null!;
-    private Button btnPlaceMarker = null!;
     private Button btnUndo = null!;
     private Button btnFinish = null!;
     private Button btnCancel = null!;
     private Label lblMapHint = null!;
+    private Label lblMapStatus = null!;
+    private System.Windows.Forms.Timer transientStatusTimer = null!;
     private UI.RoundedPanel inspector = null!;
     private TableLayoutPanel detailsLayout = null!;
     private TableLayoutPanel parcelHeaderLayout = null!;
@@ -31,6 +32,15 @@ partial class ParcelMapView
     private Button btnChangePrice = null!;
     private Button btnReassign = null!;
     private Button btnArchive = null!;
+    private TableLayoutPanel photoHeaderLayout = null!;
+    private Label lblPhotosHeader = null!;
+    private FlowLayoutPanel photoActions = null!;
+    private Button btnAddPhotos = null!;
+    private Button btnRemovePhoto = null!;
+    private FlowLayoutPanel flowPhotos = null!;
+    private FlowLayoutPanel photoStatusLayout = null!;
+    private Label lblPhotoStatus = null!;
+    private ProgressBar progressPhotos = null!;
     private ListView listLeads = null!;
     private ColumnHeader colContact = null!;
     private ColumnHeader colStage = null!;
@@ -38,22 +48,28 @@ partial class ParcelMapView
     protected override void Dispose(bool disposing)
     {
         if (disposing)
+        {
+            transientStatusTimer?.Stop();
+            DisposePhotoResources();
             components?.Dispose();
+        }
         base.Dispose(disposing);
     }
 
     private void InitializeComponent()
     {
+        components = new System.ComponentModel.Container();
         layoutMain = new SplitContainer();
         mapLayout = new TableLayoutPanel();
         mapToolbar = new FlowLayoutPanel();
         mapControl = new UI.LeafletMapControl();
         btnNewParcel = new Button();
-        btnPlaceMarker = new Button();
         btnUndo = new Button();
         btnFinish = new Button();
         btnCancel = new Button();
         lblMapHint = new Label();
+        lblMapStatus = new Label();
+        transientStatusTimer = new System.Windows.Forms.Timer(components);
         inspector = new UI.RoundedPanel();
         detailsLayout = new TableLayoutPanel();
         parcelHeaderLayout = new TableLayoutPanel();
@@ -71,6 +87,15 @@ partial class ParcelMapView
         btnChangePrice = new Button();
         btnReassign = new Button();
         btnArchive = new Button();
+        photoHeaderLayout = new TableLayoutPanel();
+        lblPhotosHeader = new Label();
+        photoActions = new FlowLayoutPanel();
+        btnAddPhotos = new Button();
+        btnRemovePhoto = new Button();
+        flowPhotos = new FlowLayoutPanel();
+        photoStatusLayout = new FlowLayoutPanel();
+        lblPhotoStatus = new Label();
+        progressPhotos = new ProgressBar();
         listLeads = new ListView();
         colContact = new ColumnHeader();
         colStage = new ColumnHeader();
@@ -106,16 +131,17 @@ partial class ParcelMapView
         mapLayout.Controls.Add(mapToolbar, 0, 0);
         mapLayout.Controls.Add(lblMapHint, 0, 1);
         mapLayout.Controls.Add(mapControl, 0, 2);
+        mapLayout.Controls.Add(lblMapStatus, 0, 3);
         mapLayout.Dock = DockStyle.Fill;
         mapLayout.Name = "mapLayout";
-        mapLayout.RowCount = 3;
+        mapLayout.RowCount = 4;
         mapLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         mapLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         mapLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+        mapLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         // mapToolbar
         mapToolbar.AutoSize = true;
         mapToolbar.Controls.Add(btnNewParcel);
-        mapToolbar.Controls.Add(btnPlaceMarker);
         mapToolbar.Controls.Add(btnUndo);
         mapToolbar.Controls.Add(btnFinish);
         mapToolbar.Controls.Add(btnCancel);
@@ -127,10 +153,6 @@ partial class ParcelMapView
         btnNewParcel.Name = "btnNewParcel";
         btnNewParcel.Text = "New parcel";
         btnNewParcel.UseVisualStyleBackColor = false;
-        btnPlaceMarker.AutoSize = true;
-        btnPlaceMarker.Name = "btnPlaceMarker";
-        btnPlaceMarker.Text = "Place marker";
-        btnPlaceMarker.UseVisualStyleBackColor = false;
         btnUndo.AutoSize = true;
         btnUndo.Name = "btnUndo";
         btnUndo.Text = "Undo";
@@ -150,6 +172,15 @@ partial class ParcelMapView
         lblMapHint.Text = "";
         lblMapHint.UseMnemonic = false;
         lblMapHint.Visible = false;
+        // lblMapStatus
+        lblMapStatus.AutoSize = true;
+        lblMapStatus.Dock = DockStyle.Fill;
+        lblMapStatus.Margin = new Padding(8, 2, 8, 6);
+        lblMapStatus.Name = "lblMapStatus";
+        lblMapStatus.Text = "";
+        lblMapStatus.UseMnemonic = false;
+        lblMapStatus.Visible = false;
+        transientStatusTimer.Interval = 4000;
         // layoutMain.Panel2
         layoutMain.Panel2.Controls.Add(inspector);
         // mapControl
@@ -174,16 +205,22 @@ partial class ParcelMapView
         detailsLayout.Controls.Add(facts, 0, 2);
         detailsLayout.Controls.Add(lblDescription, 0, 3);
         detailsLayout.Controls.Add(parcelActions, 0, 4);
-        detailsLayout.Controls.Add(leadHeaderLayout, 0, 5);
-        detailsLayout.Controls.Add(listLeads, 0, 6);
+        detailsLayout.Controls.Add(photoHeaderLayout, 0, 5);
+        detailsLayout.Controls.Add(flowPhotos, 0, 6);
+        detailsLayout.Controls.Add(photoStatusLayout, 0, 7);
+        detailsLayout.Controls.Add(leadHeaderLayout, 0, 8);
+        detailsLayout.Controls.Add(listLeads, 0, 9);
         detailsLayout.Dock = DockStyle.Fill;
         detailsLayout.Location = new Point(12, 12);
         detailsLayout.Name = "detailsLayout";
-        detailsLayout.RowCount = 7;
+        detailsLayout.RowCount = 10;
         detailsLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         detailsLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         detailsLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         detailsLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        detailsLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        detailsLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        detailsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 96F));
         detailsLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         detailsLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         detailsLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
@@ -283,6 +320,61 @@ partial class ParcelMapView
         btnArchive.Name = "btnArchive";
         btnArchive.Text = "Archive";
         btnArchive.UseVisualStyleBackColor = false;
+        // parcel photos
+        photoHeaderLayout.AutoSize = true;
+        photoHeaderLayout.ColumnCount = 2;
+        photoHeaderLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+        photoHeaderLayout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        photoHeaderLayout.Controls.Add(lblPhotosHeader, 0, 0);
+        photoHeaderLayout.Controls.Add(photoActions, 1, 0);
+        photoHeaderLayout.Dock = DockStyle.Fill;
+        photoHeaderLayout.Margin = new Padding(0, 4, 0, 0);
+        photoHeaderLayout.Name = "photoHeaderLayout";
+        photoHeaderLayout.RowCount = 1;
+        photoHeaderLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        lblPhotosHeader.AutoSize = true;
+        lblPhotosHeader.Dock = DockStyle.Fill;
+        lblPhotosHeader.Name = "lblPhotosHeader";
+        lblPhotosHeader.Text = "Photos";
+        lblPhotosHeader.TextAlign = ContentAlignment.MiddleLeft;
+        photoActions.AutoSize = true;
+        photoActions.Controls.Add(btnRemovePhoto);
+        photoActions.Controls.Add(btnAddPhotos);
+        photoActions.FlowDirection = FlowDirection.RightToLeft;
+        photoActions.Margin = new Padding(0);
+        photoActions.Name = "photoActions";
+        photoActions.WrapContents = false;
+        btnAddPhotos.AutoSize = true;
+        btnAddPhotos.Margin = new Padding(4, 0, 0, 0);
+        btnAddPhotos.Name = "btnAddPhotos";
+        btnAddPhotos.Text = "Add photos...";
+        btnAddPhotos.UseVisualStyleBackColor = false;
+        btnRemovePhoto.AutoSize = true;
+        btnRemovePhoto.Margin = new Padding(4, 0, 0, 0);
+        btnRemovePhoto.Name = "btnRemovePhoto";
+        btnRemovePhoto.Text = "Remove";
+        btnRemovePhoto.UseVisualStyleBackColor = false;
+        flowPhotos.AutoScroll = true;
+        flowPhotos.Dock = DockStyle.Fill;
+        flowPhotos.FlowDirection = FlowDirection.LeftToRight;
+        flowPhotos.Margin = new Padding(0, 0, 0, 2);
+        flowPhotos.Name = "flowPhotos";
+        flowPhotos.WrapContents = false;
+        photoStatusLayout.AutoSize = true;
+        photoStatusLayout.Controls.Add(lblPhotoStatus);
+        photoStatusLayout.Controls.Add(progressPhotos);
+        photoStatusLayout.Dock = DockStyle.Fill;
+        photoStatusLayout.Margin = new Padding(0, 0, 0, 2);
+        photoStatusLayout.Name = "photoStatusLayout";
+        photoStatusLayout.WrapContents = false;
+        lblPhotoStatus.AutoSize = true;
+        lblPhotoStatus.Name = "lblPhotoStatus";
+        lblPhotoStatus.Text = "Select a parcel to view photos.";
+        lblPhotoStatus.UseMnemonic = false;
+        progressPhotos.MarqueeAnimationSpeed = 30;
+        progressPhotos.Name = "progressPhotos";
+        progressPhotos.Style = ProgressBarStyle.Marquee;
+        progressPhotos.Visible = false;
         // leadHeaderLayout
         leadHeaderLayout.ColumnCount = 2;
         leadHeaderLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
@@ -353,6 +445,13 @@ partial class ParcelMapView
         detailsLayout.PerformLayout();
         parcelHeaderLayout.ResumeLayout(false);
         parcelHeaderLayout.PerformLayout();
+        photoHeaderLayout.ResumeLayout(false);
+        photoHeaderLayout.PerformLayout();
+        photoActions.ResumeLayout(false);
+        photoActions.PerformLayout();
+        flowPhotos.ResumeLayout(false);
+        photoStatusLayout.ResumeLayout(false);
+        photoStatusLayout.PerformLayout();
         leadHeaderLayout.ResumeLayout(false);
         leadHeaderLayout.PerformLayout();
         ResumeLayout(false);

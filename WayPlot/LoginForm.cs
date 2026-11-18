@@ -3,6 +3,7 @@ using WayPlot.infrastructure.Data.Seed;
 using WayPlot.infrastructure.Tenancy;
 using WayPlot.UI;
 using WayPlot.Views;
+using WayPlot.domain.Services.MainTransaction;
 
 namespace WayPlot;
 
@@ -13,8 +14,10 @@ public partial class LoginForm : Form
     private readonly SessionStarter _sessionStarter;
     private readonly TenantSeeder _seeder;
     private readonly Func<LoginResult, MainShell> _shellFactory;
+    private readonly DealService _dealService;
 
-    public LoginForm(AuthClient auth, SessionStarter sessionStarter, TenantSeeder seeder, Func<LoginResult, MainShell> shellFactory)
+    public LoginForm(AuthClient auth, SessionStarter sessionStarter, TenantSeeder seeder,
+        Func<LoginResult, MainShell> shellFactory, DealService dealService)
     {
         InitializeComponent();
 
@@ -22,6 +25,7 @@ public partial class LoginForm : Form
         _sessionStarter = sessionStarter;
         _seeder = seeder;
         _shellFactory = shellFactory;
+        _dealService = dealService;
 
         ApplyTheme();
     }
@@ -69,6 +73,12 @@ public partial class LoginForm : Form
             if (!seeded.Ok)
                 MessageBox.Show(this, seeded.Message, "WayPlot CRM", MessageBoxButtons.OK, MessageBoxIcon.Warning);
 
+            _ = Task.Run(async () =>
+            {
+                try { await _dealService.RefreshDealStatusesAsync(); }
+                catch { }
+            });
+
             txtPass.Clear();
             OpenShell(login);
         }
@@ -89,7 +99,21 @@ public partial class LoginForm : Form
     private void OpenShell(LoginResult login)
     {
         var shell = _shellFactory(login);
-        shell.FormClosed += (_, _) => Close();   // closing the main window ends the app
+        shell.SignOutRequested += (_, _) => _sessionStarter.End();
+        shell.FormClosed += (_, _) =>
+        {
+            if (!shell.IsSigningOut)
+            {
+                Close();
+                return;
+            }
+
+            txtUser.Clear();
+            txtPass.Clear();
+            lblMessage.Text = string.Empty;
+            Show();
+            Activate();
+        };
         Hide();
         shell.Show();
     }

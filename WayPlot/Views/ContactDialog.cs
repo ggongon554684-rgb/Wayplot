@@ -16,7 +16,7 @@ public partial class ContactDialog : Form
     private static readonly LeadSource[] Sources = Enum.GetValues<LeadSource>()
         .Where(source => source != LeadSource.Import)
         .ToArray();
-    private static readonly ContactType[] Types = Enum.GetValues<ContactType>();
+    private static readonly ContactType[] Types = [ContactType.Customer, ContactType.Landowner];
     private ContactReferralOptions _referralOptions = new([], []);
 
     public ContactDialog()

@@ -25,6 +25,11 @@ public class Deal : BaseEntity
     public bool IsActive { get; set; } = true;
     public DateTime? ConfirmedAtUtc { get; set; }
     public Guid? ConfirmedByStaffId { get; set; }
+    public string? TerminationReason { get; set; }
+    public DealMoneyOutcome? TerminationMoneyOutcome { get; set; }
+    public decimal? RefundedAmount { get; set; }
+    public DateTime? TerminatedAtUtc { get; set; }
+    public Guid? TerminatedByStaffId { get; set; }
     public List<Payment> Payments { get; set; } = [];
     public List<Commission> Commissions { get; set; } = [];
 }

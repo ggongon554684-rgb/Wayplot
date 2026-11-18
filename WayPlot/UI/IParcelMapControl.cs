@@ -39,7 +39,7 @@ public interface IParcelMapControl
     void FitParcel(Guid parcelId);
     void SetNote(string? text);
     void SetMessage(string? text);
-    void StartDraw(string mode);
+    void StartDraw();
     void StartEditGeometry(Guid parcelId);
     void UndoVertex();
     void FinishMode();

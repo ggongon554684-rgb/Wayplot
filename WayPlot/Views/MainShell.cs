@@ -37,6 +37,32 @@ public partial class MainShell : Form
         lblAppName.ForeColor = Theme.Navy;
         lblWorkspace.Font = Theme.Small;
         lblWorkspace.ForeColor = Theme.Muted;
+        ButtonStyle.Apply(btnSignOut, primary: false);
+        btnSignOut.Click += (_, _) => SignOut();
+    }
+
+    public event EventHandler? SignOutRequested;
+    public bool IsSigningOut { get; private set; }
+
+    private void SignOut()
+    {
+        if (MessageBox.Show(
+                this,
+                "Sign out of this account?",
+                "Sign out",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question) != DialogResult.Yes)
+            return;
+
+        foreach (var view in pnlContent.Controls.Cast<Control>().ToList())
+        {
+            pnlContent.Controls.Remove(view);
+            view.Dispose();
+        }
+
+        IsSigningOut = true;
+        SignOutRequested?.Invoke(this, EventArgs.Empty);
+        Close();
     }
 
     private void ShowView(string? key)
@@ -53,5 +79,37 @@ public partial class MainShell : Form
         Control view = _views.TryGetValue(key, out var create) ? create() : new ComingNextView { Title = title };
         view.Dock = DockStyle.Fill;
         pnlContent.Controls.Add(view);
+        if (view is ContactsView contactsView)
+        {
+            contactsView.ShowParcelOnMap = ShowParcelOnMap;
+            contactsView.ShowContactSelection = _pendingContactId;
+            _pendingContactId = null;
+        }
+        if (view is PipelineView pipelineView)
+        {
+            pipelineView.ShowParcelOnMap = ShowParcelOnMap;
+            pipelineView.ShowContactRequested = ShowContact;
+        }
+        if (key == "parcel-map" && _pendingParcelId is { } parcelId
+            && view is ParcelMapView mapView)
+        {
+            mapView.PendingParcelId = parcelId;
+            _pendingParcelId = null;
+        }
+    }
+
+    private Guid? _pendingParcelId;
+    private Guid? _pendingContactId;
+
+    public void ShowParcelOnMap(Guid parcelId)
+    {
+        _pendingParcelId = parcelId;
+        tabBar.SelectKey("parcel-map");
+    }
+
+    public void ShowContact(Guid contactId)
+    {
+        _pendingContactId = contactId;
+        tabBar.SelectKey("contacts");
     }
 }

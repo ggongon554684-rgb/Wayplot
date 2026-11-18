@@ -16,7 +16,9 @@ public sealed class LeadService(
     IDomainEventDispatcher events,
     ICurrentUser user,
     IClock clock,
-    TenantAccessPolicy access)
+    TenantAccessPolicy access,
+    IPipelineStageProvider pipelineStages,
+    TimeProvider timeProvider)
 {
     public async Task<LeadResult> AttachContactToParcelAsync(AttachLeadRequest request)
     {
@@ -92,6 +94,30 @@ public sealed class LeadService(
             (await uow.Leads.ListByParcelAsync(parcelId, scope.Value)).Select(ToDto).ToList());
     }
 
+    public async Task<ServiceResult<IReadOnlyList<ContactLeadCardDto>>> ListByContactAsync(Guid contactId)
+    {
+        var scope = access.GetDataReadScope("leads");
+        if (!scope.Ok)
+            return ServiceResult<IReadOnlyList<ContactLeadCardDto>>.Fail(scope.Message);
+
+        await using var uow = uowFactory.Create();
+        var leads = await uow.Leads.ListByContactAsync(contactId, scope.Value);
+        var staffIds = leads.Where(lead => lead.AssignedStaffId is not null)
+            .Select(lead => lead.AssignedStaffId!.Value).Distinct().ToArray();
+        var staff = await uow.Staff.ListByIdsAsync(staffIds);
+        var names = staff.ToDictionary(member => member.Id, member => member.FullName);
+
+        var cards = leads.Select(lead => new ContactLeadCardDto(
+            lead.Id,
+            lead.ParcelId,
+            lead.Parcel.Label,
+            lead.Stage,
+            lead.AssignedStaffId is { } staffId && names.TryGetValue(staffId, out var name)
+                ? name : "Unassigned",
+            lead.LastActivityAtUtc)).ToList();
+        return ServiceResult<IReadOnlyList<ContactLeadCardDto>>.Success(cards);
+    }
+
     public async Task<ServiceResult<IReadOnlyList<LeadListItem>>> ListAsync(LeadStage? stage, string? search)
     {
         var scope = access.GetDataReadScope("leads");
@@ -132,6 +158,463 @@ public sealed class LeadService(
             interactions.Select(i => new LeadInteractionRow(i.Type, i.Channel, i.OccurredAtUtc, i.Note)).ToList()));
     }
 
+    public async Task<ServiceResult<Guid>> AddLeadForContactAsync(
+        Guid contactId, Guid parcelId, string? note = null, Guid? assignToStaffId = null)
+    {
+        var permission = access.RequireDataMutation("add a lead for a contact");
+        if (!permission.Ok)
+            return ServiceResult<Guid>.Fail(permission.Message);
+        var scope = access.GetDataReadScope("contacts and leads");
+        if (!scope.Ok)
+            return ServiceResult<Guid>.Fail(scope.Message);
+
+        await using var uow = uowFactory.Create();
+        var contact = await uow.Contacts.GetAsync(contactId, scope.Value);
+        if (contact is null)
+            return ServiceResult<Guid>.Fail("Cannot add this lead: the contact was not found or is outside your access scope.");
+        var parcel = await uow.Parcels.GetAsync(parcelId);
+        if (parcel is null)
+            return ServiceResult<Guid>.Fail("That parcel was not found.");
+        if (parcel.Status != ParcelStatus.Available)
+            return ServiceResult<Guid>.Fail($"Cannot add a lead: parcel {parcel.Label} is {parcel.Status}, not Available.");
+
+        var existing = await uow.Leads.ListByContactAsync(contactId, scope.Value);
+        foreach (var existingLead in existing.Where(item => item.ParcelId == parcelId))
+        {
+            if (existingLead.Stage != LeadStage.Lost)
+            {
+                if (existingLead.Stage != LeadStage.Closed)
+                    return ServiceResult<Guid>.Fail($"{contact.FullName} already has an open lead on parcel {parcel.Label}.");
+                var deals = await uow.Deals.ListByLeadAsync(existingLead.Id);
+                if (!deals.Any(deal => deal.Status is DealStatus.Cancelled or DealStatus.Defaulted))
+                    return ServiceResult<Guid>.Fail($"{contact.FullName} already has an open lead on parcel {parcel.Label}.");
+            }
+        }
+
+        Guid assignedStaffId;
+        if (access.IsAgent)
+            assignedStaffId = access.CurrentStaffId!.Value;
+        else
+        {
+            if (assignToStaffId is { } selected)
+                assignedStaffId = selected;
+            else if (contact.AssignedStaffId is { } contactAgent)
+                assignedStaffId = contactAgent;
+            else
+                return ServiceResult<Guid>.Fail("Assign this lead to an agent.");
+        }
+        if (!await uow.Staff.IsActiveAgentAsync(assignedStaffId))
+            return ServiceResult<Guid>.Fail("The assigned agent was not found or is inactive.");
+
+        var now = clock.UtcNow;
+        var lead = new Lead
+        {
+            ContactId = contact.Id,
+            Contact = contact,
+            ParcelId = parcel.Id,
+            Parcel = parcel,
+            Stage = LeadStage.New,
+            AssignedStaffId = assignedStaffId,
+            LastActivityAtUtc = now
+        };
+        uow.Leads.Add(lead);
+        uow.StageHistories.Add(new StageHistory
+        {
+            LeadId = lead.Id,
+            FromStage = null,
+            ToStage = LeadStage.New,
+            ChangedAtUtc = now,
+            ChangedByStaffId = user.UserId,
+            Note = string.IsNullOrWhiteSpace(note) ? "Lead created" : note.Trim()
+        });
+
+        await uow.ExecuteInTransactionAsync(async () => await uow.SaveAsync());
+        await events.DispatchAsync(new LeadCaptured(lead.Id, now));
+        return ServiceResult<Guid>.Success(lead.Id, $"Lead created on parcel {parcel.Label}.");
+    }
+
+    public async Task<ServiceResult<Guid>> SwitchLotAsync(Guid leadId, Guid newParcelId, string? reason = null)
+    {
+        var permission = access.RequireDataMutation("switch a lead to another lot");
+        if (!permission.Ok)
+            return ServiceResult<Guid>.Fail(permission.Message);
+
+        await using var uow = uowFactory.Create();
+        var oldLead = await uow.Leads.GetAsync(leadId);
+        if (oldLead is null)
+            return ServiceResult<Guid>.Fail("That lead was not found.");
+        var leadPermission = access.RequireLeadMutation(oldLead, "switch this lead to another lot");
+        if (!leadPermission.Ok)
+            return ServiceResult<Guid>.Fail(leadPermission.Message);
+        if (oldLead.Stage is LeadStage.Closed or LeadStage.Lost)
+            return ServiceResult<Guid>.Fail($"Cannot switch lot: this lead is already {oldLead.Stage}.");
+        if (oldLead.Stage is not (LeadStage.New or LeadStage.Contacted or LeadStage.Viewing or LeadStage.Negotiation))
+            return ServiceResult<Guid>.Fail("This lead cannot switch lots.");
+        if (oldLead.ParcelId == newParcelId)
+            return ServiceResult<Guid>.Fail("Choose a different parcel.");
+
+        var parcel = await uow.Parcels.GetAsync(newParcelId);
+        if (parcel is null)
+            return ServiceResult<Guid>.Fail("That parcel was not found.");
+        if (parcel.Status != ParcelStatus.Available)
+            return ServiceResult<Guid>.Fail($"Cannot switch lots: parcel {parcel.Label} is {parcel.Status}, not Available.");
+        var assignedStaffId = oldLead.AssignedStaffId;
+        if (assignedStaffId is null)
+            return ServiceResult<Guid>.Fail("Assign this lead to an agent before switching lots.");
+
+        var existing = await uow.Leads.ListByContactAsync(oldLead.ContactId);
+        foreach (var existingLead in existing.Where(lead => lead.ParcelId == newParcelId))
+        {
+            if (existingLead.Stage != LeadStage.Lost)
+            {
+                if (existingLead.Stage != LeadStage.Closed)
+                    return ServiceResult<Guid>.Fail($"{oldLead.Contact.FullName} already has a lead on parcel {parcel.Label}.");
+                var deals = await uow.Deals.ListByLeadAsync(existingLead.Id);
+                if (!deals.Any(deal => deal.Status is DealStatus.Cancelled or DealStatus.Defaulted))
+                    return ServiceResult<Guid>.Fail($"{oldLead.Contact.FullName} already has a lead on parcel {parcel.Label}.");
+            }
+        }
+
+        var now = clock.UtcNow;
+        var newLead = new Lead
+        {
+            ContactId = oldLead.ContactId,
+            Contact = oldLead.Contact,
+            ParcelId = parcel.Id,
+            Parcel = parcel,
+            Stage = LeadStage.New,
+            AssignedStaffId = assignedStaffId,
+            LastActivityAtUtc = now
+        };
+        uow.Leads.Add(newLead);
+        uow.StageHistories.Add(new StageHistory
+        {
+            LeadId = newLead.Id,
+            FromStage = null,
+            ToStage = LeadStage.New,
+            ChangedAtUtc = now,
+            ChangedByStaffId = user.UserId,
+            Note = "Lead created"
+        });
+
+        var from = oldLead.Stage;
+        var lostNote = $"Switched to lot {parcel.Label}" +
+            (string.IsNullOrWhiteSpace(reason) ? string.Empty : $": {reason.Trim()}");
+        oldLead.Stage = LeadStage.Lost;
+        oldLead.LostReason = lostNote;
+        oldLead.LastActivityAtUtc = now;
+        uow.StageHistories.Add(new StageHistory
+        {
+            LeadId = oldLead.Id,
+            FromStage = from,
+            ToStage = LeadStage.Lost,
+            ChangedAtUtc = now,
+            ChangedByStaffId = user.UserId,
+            Note = lostNote
+        });
+
+        await uow.ExecuteInTransactionAsync(async () => await uow.SaveAsync());
+        await events.DispatchAsync(new LeadCaptured(newLead.Id, now));
+        await events.DispatchAsync(new LeadStageChanged(oldLead.Id, from, LeadStage.Lost, now));
+        return ServiceResult<Guid>.Success(newLead.Id, $"Lead switched to parcel {parcel.Label}. The old lead was lost.");
+    }
+
+    public async Task<ServiceResult<PipelineBoardDto>> GetPipelineBoardAsync(PipelineFilter filter)
+    {
+        var scope = access.GetDataReadScope("pipeline");
+        if (!scope.Ok)
+            return ServiceResult<PipelineBoardDto>.Fail(scope.Message);
+
+        await using var uow = uowFactory.Create();
+        var assignedId = scope.Value.Kind == TenantDataScopeKind.Agent
+            ? scope.Value.StaffId
+            : user.Role == Roles.TenantAdmin ? filter.AssignedStaffId : null;
+        var leads = await uow.Leads.ListAsync(null, filter.SearchText, assignedId, scope.Value);
+        if (filter.ParcelId is { } parcelId)
+            leads = leads.Where(lead => lead.ParcelId == parcelId).ToList();
+
+        var cutoff = timeProvider.GetLocalNow().UtcDateTime.AddDays(-30);
+        if (!filter.IncludeAllClosedAndLost)
+            leads = leads.Where(lead => lead.Stage is not LeadStage.Closed and not LeadStage.Lost
+                || lead.LastActivityAtUtc >= cutoff).ToList();
+
+        var staffIds = leads.Where(lead => lead.AssignedStaffId is not null)
+            .Select(lead => lead.AssignedStaffId!.Value).Distinct().ToArray();
+        var staff = await uow.Staff.ListByIdsAsync(staffIds);
+        var staffNames = staff.ToDictionary(item => item.Id, item => item.FullName);
+        var columns = new List<PipelineColumnDto>();
+        foreach (var stageInfo in pipelineStages.GetStages())
+        {
+            if (!Enum.TryParse<LeadStage>(stageInfo.Key, out var stage))
+                continue;
+            var inStage = leads.Where(lead => lead.Stage == stage)
+                .OrderByDescending(lead => lead.LastActivityAtUtc).Take(100).ToList();
+            var cards = new List<LeadCardDto>();
+            foreach (var lead in inStage)
+            {
+                var history = await uow.StageHistories.ListByLeadAsync(lead.Id);
+                var lastChange = history.Where(item => item.FromStage != item.ToStage && item.ToStage == stage)
+                    .OrderByDescending(item => item.ChangedAtUtc).FirstOrDefault();
+                var days = Math.Max(0, (timeProvider.GetLocalNow().UtcDateTime - (lastChange?.ChangedAtUtc ?? lead.LastActivityAtUtc)).Days);
+                var deals = await uow.Deals.ListByLeadAsync(lead.Id);
+                var latestDeal = deals.FirstOrDefault();
+                cards.Add(new LeadCardDto(
+                    lead.Id, lead.ContactId, lead.Contact.FullName, lead.ParcelId, lead.Parcel.Label,
+                    lead.AssignedStaffId is { } id && staffNames.TryGetValue(id, out var name) ? name : null,
+                    lead.Stage, days, lead.LastActivityAtUtc, lead.CloseRequested,
+                    latestDeal?.Status));
+            }
+            columns.Add(new PipelineColumnDto(stageInfo.Key, stageInfo.Name,
+                leads.Count(lead => lead.Stage == stage), cards));
+        }
+        return ServiceResult<PipelineBoardDto>.Success(new PipelineBoardDto(columns));
+    }
+
+    public async Task<ServiceResult<IReadOnlyList<LeadMoveOptionDto>>> GetAllowedMovesAsync(Guid leadId)
+    {
+        var scope = access.GetDataReadScope("pipeline moves");
+        if (!scope.Ok)
+            return ServiceResult<IReadOnlyList<LeadMoveOptionDto>>.Fail(scope.Message);
+        await using var uow = uowFactory.Create();
+        var lead = await uow.Leads.GetAsync(leadId, scope.Value);
+        if (lead is null)
+            return ServiceResult<IReadOnlyList<LeadMoveOptionDto>>.Fail("That lead was not found or is outside your access scope.");
+
+        var list = new List<LeadMoveOptionDto>();
+        foreach (var stageInfo in pipelineStages.GetStages())
+        {
+            if (!Enum.TryParse<LeadStage>(stageInfo.Key, out var target))
+                continue;
+            var anotherHoldsParcel = target == LeadStage.Negotiation
+                && await uow.Leads.AnotherLeadInNegotiationAsync(lead.ParcelId, lead.Id);
+            var rule = target == LeadStage.Closed
+                ? RuleResult.Fail("Closed is requested through the deal-confirmation flow.")
+                : PipelineRules.CanMove(lead, target, anotherHoldsParcel);
+            if (user.Role is Roles.BranchManager or Roles.SuperAdmin)
+                rule = RuleResult.Fail(access.MutationUnavailableReason);
+            else if (access.IsAgent && lead.AssignedStaffId != access.CurrentStaffId)
+                rule = RuleResult.Fail("Agents may only move leads assigned to them.");
+            list.Add(new LeadMoveOptionDto(
+                target, rule.Ok, rule.Ok ? null : rule.Message,
+                target == LeadStage.Lost, target == LeadStage.Closed));
+        }
+        return ServiceResult<IReadOnlyList<LeadMoveOptionDto>>.Success(list);
+    }
+
+    public async Task<ServiceResult<IReadOnlyList<TimelineItemDto>>> GetLeadTimelineAsync(Guid leadId)
+    {
+        var scope = access.GetDataReadScope("lead timeline");
+        if (!scope.Ok)
+            return ServiceResult<IReadOnlyList<TimelineItemDto>>.Fail(scope.Message);
+        await using var uow = uowFactory.Create();
+        var lead = await uow.Leads.GetAsync(leadId, scope.Value);
+        if (lead is null)
+            return ServiceResult<IReadOnlyList<TimelineItemDto>>.Fail("That lead was not found or is outside your access scope.");
+
+        var items = new List<TimelineItemDto>();
+        var history = await uow.StageHistories.ListByLeadAsync(leadId);
+        var staffIds = history.Where(row => row.ChangedByStaffId is not null)
+            .Select(row => row.ChangedByStaffId!.Value).Distinct().ToArray();
+        var staff = await uow.Staff.ListByIdsAsync(staffIds);
+        var names = staff.ToDictionary(member => member.Id, member => member.FullName);
+        foreach (var row in history)
+        {
+            var name = row.ChangedByStaffId is { } id && names.TryGetValue(id, out var staffName) ? staffName : null;
+            if (row.FromStage is not null && row.FromStage == row.ToStage)
+            {
+                items.Add(new TimelineItemDto(row.ChangedAtUtc.ToLocalTime(), DealTimelineKind.Reassignment,
+                    "Reassigned", row.Note, name));
+                continue;
+            }
+            items.Add(new TimelineItemDto(row.ChangedAtUtc.ToLocalTime(), DealTimelineKind.StageChange,
+                row.FromStage is null ? $"Stage: {row.ToStage}" : $"{row.FromStage} -> {row.ToStage}",
+                row.Note, name));
+        }
+        var interactions = await uow.Interactions.ListByLeadAsync(leadId, scope.Value);
+        foreach (var row in interactions)
+        {
+            var name = row.LoggedByStaffId is { } id && names.TryGetValue(id, out var staffName) ? staffName : null;
+            items.Add(new TimelineItemDto(row.OccurredAtUtc.ToLocalTime(), DealTimelineKind.Interaction,
+                row.Type.ToString(), row.Note, name));
+        }
+        var deals = await uow.Deals.ListByLeadAsync(leadId);
+        foreach (var deal in deals)
+        {
+            items.Add(new TimelineItemDto(deal.CreatedAtUtc.ToLocalTime(), DealTimelineKind.DealEvent,
+                "Deal request created", null, null));
+            if (deal.ConfirmedAtUtc is { } confirmed)
+            {
+                items.Add(new TimelineItemDto(confirmed.ToLocalTime(), DealTimelineKind.DealEvent,
+                    "Deal confirmed", $"Deal was confirmed as {deal.Parcel.Status}.", null));
+            }
+            if (deal.TerminatedAtUtc is { } terminated)
+            {
+                var detail = deal.TerminationReason;
+                if (deal.TerminationMoneyOutcome is { } outcome)
+                    detail = string.IsNullOrWhiteSpace(detail)
+                        ? $"{outcome}"
+                        : $"{detail}; {outcome}" +
+                            (deal.RefundedAmount is { } refunded ? $"; {refunded:C}" : string.Empty);
+                items.Add(new TimelineItemDto(terminated.ToLocalTime(), DealTimelineKind.DealEvent,
+                    deal.Status == DealStatus.Defaulted ? "Deal defaulted" : "Deal cancelled",
+                    detail, null));
+            }
+            if (deal.Status == DealStatus.Cancelled && deal.ConfirmedAtUtc is null)
+            {
+                var detail = string.IsNullOrWhiteSpace(deal.TerminationReason) ? null : deal.TerminationReason;
+                items.Insert(0, new TimelineItemDto(deal.CreatedAtUtc.ToLocalTime(), DealTimelineKind.DealEvent,
+                    "Deal request returned", detail, null));
+            }
+        }
+        return ServiceResult<IReadOnlyList<TimelineItemDto>>.Success(
+            items.OrderByDescending(item => item.When).ToList());
+    }
+
+    public async Task<ServiceResult<bool>> ReassignLeadAsync(Guid leadId, Guid toStaffId, string? note = null)
+    {
+        if (user.Role != Roles.TenantAdmin)
+            return ServiceResult<bool>.Fail("Only a Tenant Admin can reassign leads.");
+        await using var uow = uowFactory.Create();
+        var lead = await uow.Leads.GetAsync(leadId);
+        if (lead is null)
+            return ServiceResult<bool>.Fail("That lead was not found.");
+        if (!await uow.Staff.IsActiveAgentAsync(toStaffId))
+            return ServiceResult<bool>.Fail("The destination staff member must be an active Agent.");
+        if (lead.Stage is LeadStage.Closed or LeadStage.Lost)
+            return ServiceResult<bool>.Fail("Closed and Lost leads are never reassigned.");
+        var target = (await uow.Staff.ListByIdsAsync([toStaffId])).FirstOrDefault();
+        var source = lead.AssignedStaffId is { } sourceId
+            ? (await uow.Staff.ListByIdsAsync([sourceId])).FirstOrDefault()
+            : null;
+        if (source?.BranchId is not null && target?.BranchId is not null && source.BranchId != target.BranchId)
+            return ServiceResult<bool>.Fail("Moving records between branches is not supported yet.");
+
+        lead.AssignedStaffId = toStaffId;
+        lead.LastActivityAtUtc = clock.UtcNow;
+        uow.StageHistories.Add(new StageHistory
+        {
+            LeadId = lead.Id,
+            FromStage = lead.Stage,
+            ToStage = lead.Stage,
+            ChangedAtUtc = lead.LastActivityAtUtc,
+            ChangedByStaffId = user.UserId,
+            Note = string.IsNullOrWhiteSpace(note)
+                ? $"Reassigned to {target?.FullName ?? "another agent"}"
+                : note.Trim()
+        });
+        await uow.ExecuteInTransactionAsync(async () => await uow.SaveAsync());
+        await events.DispatchAsync(new LeadStageChanged(lead.Id, lead.Stage, lead.Stage, lead.LastActivityAtUtc));
+        return ServiceResult<bool>.Success(true, "Lead reassigned. History was preserved.");
+    }
+
+    public async Task<ServiceResult<bool>> ReassignContactAsync(
+        Guid contactId, Guid toStaffId, bool includeOpenLeads)
+    {
+        if (user.Role != Roles.TenantAdmin)
+            return ServiceResult<bool>.Fail("Only a Tenant Admin can reassign contacts.");
+        await using var uow = uowFactory.Create();
+        var contact = await uow.Contacts.GetAsync(contactId);
+        if (contact is null)
+            return ServiceResult<bool>.Fail("That contact was not found.");
+        if (!await uow.Staff.IsActiveAgentAsync(toStaffId))
+            return ServiceResult<bool>.Fail("The destination staff member must be an active Agent.");
+
+        var target = (await uow.Staff.ListByIdsAsync([toStaffId])).FirstOrDefault();
+        var source = contact.AssignedStaffId is { } sourceId
+            ? (await uow.Staff.ListByIdsAsync([sourceId])).FirstOrDefault()
+            : null;
+        if (source?.BranchId is not null && target?.BranchId is not null && source.BranchId != target.BranchId)
+            return ServiceResult<bool>.Fail("Moving records between branches is not supported yet.");
+
+        contact.AssignedStaffId = toStaffId;
+        if (includeOpenLeads)
+        {
+            var leads = await uow.Leads.ListByContactAsync(contactId);
+            foreach (var lead in leads.Where(item => item.Stage is not (LeadStage.Closed or LeadStage.Lost)))
+            {
+                var tracked = await uow.Leads.GetAsync(lead.Id);
+                if (tracked is null)
+                    continue;
+                tracked.AssignedStaffId = toStaffId;
+                tracked.LastActivityAtUtc = clock.UtcNow;
+                uow.StageHistories.Add(new StageHistory
+                {
+                    LeadId = tracked.Id,
+                    FromStage = tracked.Stage,
+                    ToStage = tracked.Stage,
+                    ChangedAtUtc = tracked.LastActivityAtUtc,
+                    ChangedByStaffId = user.UserId,
+                    Note = $"Contact reassigned; lead reassigned to {target?.FullName ?? "another agent"}"
+                });
+            }
+        }
+        await uow.ExecuteInTransactionAsync(async () => await uow.SaveAsync());
+        return ServiceResult<bool>.Success(true, "Contact reassigned.");
+    }
+
+    public async Task<ServiceResult<ReassignmentSummary>> ReassignAllFromAgentAsync(Guid fromStaffId, Guid toStaffId)
+    {
+        if (user.Role != Roles.TenantAdmin)
+            return ServiceResult<ReassignmentSummary>.Fail("Only a Tenant Admin can reassign records.");
+        await using var uow = uowFactory.Create();
+        if (!await uow.Staff.IsActiveAgentAsync(fromStaffId)
+            || !await uow.Staff.IsActiveAgentAsync(toStaffId))
+            return ServiceResult<ReassignmentSummary>.Fail("Both source and destination must be active Agents.");
+        var staff = await uow.Staff.ListByIdsAsync([fromStaffId, toStaffId]);
+        var source = staff.FirstOrDefault(item => item.Id == fromStaffId);
+        var target = staff.FirstOrDefault(item => item.Id == toStaffId);
+        if (source?.BranchId is not null && target?.BranchId is not null && source.BranchId != target.BranchId)
+            return ServiceResult<ReassignmentSummary>.Fail("Moving records between branches is not supported yet.");
+
+        var contacts = await uow.Contacts.SearchAsync(null);
+        var contactsReassigned = 0;
+        foreach (var contact in contacts.Where(item => item.AssignedStaffId == fromStaffId))
+        {
+            var tracked = await uow.Contacts.GetAsync(contact.Id);
+            if (tracked is null)
+                continue;
+            tracked.AssignedStaffId = toStaffId;
+            contactsReassigned++;
+        }
+
+        var leads = await uow.Leads.ListAsync(null, null, fromStaffId);
+        var leadsReassigned = 0;
+        foreach (var lead in leads.Where(item => item.Stage is not (LeadStage.Closed or LeadStage.Lost)))
+        {
+            var tracked = await uow.Leads.GetAsync(lead.Id);
+            if (tracked is null)
+                continue;
+            tracked.AssignedStaffId = toStaffId;
+            tracked.LastActivityAtUtc = clock.UtcNow;
+            uow.StageHistories.Add(new StageHistory
+            {
+                LeadId = tracked.Id,
+                FromStage = tracked.Stage,
+                ToStage = tracked.Stage,
+                ChangedAtUtc = tracked.LastActivityAtUtc,
+                ChangedByStaffId = user.UserId,
+                Note = "Reassigned in bulk with the agent"
+            });
+            leadsReassigned++;
+        }
+
+        var parcels = await uow.Parcels.ListAsync();
+        var parcelsReassigned = 0;
+        foreach (var parcel in parcels.Where(item => item.AssignedStaffId == fromStaffId))
+        {
+            var tracked = await uow.Parcels.GetAsync(parcel.Id);
+            if (tracked is null)
+                continue;
+            tracked.AssignedStaffId = toStaffId;
+            parcelsReassigned++;
+        }
+
+        await uow.ExecuteInTransactionAsync(async () => await uow.SaveAsync());
+        return ServiceResult<ReassignmentSummary>.Success(
+            new ReassignmentSummary(contactsReassigned, leadsReassigned, parcelsReassigned),
+            $"Reassigned {contactsReassigned} contacts, {leadsReassigned} open leads, and {parcelsReassigned} parcels.");
+    }
+
     public async Task<LeadResult> MoveStageAsync(MoveStageRequest request)
     {
         var permission = access.RequireDataMutation("move lead stages");
@@ -159,6 +642,10 @@ public sealed class LeadService(
         if (request.OfferAmount is <= 0)
             return LeadResult.Fail("The offer must be more than zero.");
 
+        var note = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim();
+        if (request.ToStage == LeadStage.Lost && note is null)
+            return LeadResult.Fail("Enter a note describing why the lead was lost.");
+
         var from = lead.Stage;
         var now = clock.UtcNow;
 
@@ -167,7 +654,9 @@ public sealed class LeadService(
         if (request.OfferAmount is { } offer)
             lead.OfferAmount = offer;
         if (request.ToStage == LeadStage.Lost)
-            lead.LostReason = string.IsNullOrWhiteSpace(request.LostReason) ? null : request.LostReason.Trim();
+            lead.LostReason = string.IsNullOrWhiteSpace(request.LostReason)
+                ? note
+                : request.LostReason.Trim();
 
         uow.StageHistories.Add(new StageHistory
         {
@@ -176,7 +665,7 @@ public sealed class LeadService(
             ToStage = request.ToStage,
             ChangedAtUtc = now,
             ChangedByStaffId = user.UserId,
-            Note = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim()
+            Note = note
         });
 
         await uow.SaveAsync();

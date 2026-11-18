@@ -17,9 +17,6 @@ public partial class LeadFileDialog : Form
         InitializeComponent();
         ApplyTheme();
 
-        foreach (var stage in Enum.GetValues<LeadStage>())
-            cboStage.Items.Add(EnumText.Pretty(stage));
-
         btnMoveStage.Click += async (_, _) => await MoveStageAsync();
         btnLogInteraction.Click += async (_, _) => await LogInteractionAsync();
         btnClose.Click += (_, _) => Close();
@@ -78,7 +75,6 @@ public partial class LeadFileDialog : Form
         lblInteractions.ForeColor = Theme.Navy;
         lblMove.ForeColor = Theme.Muted;
         lblStatus.ForeColor = Theme.Muted;
-        cboStage.Font = Theme.Body;
         listHistory.Font = Theme.Body;
         listHistory.BackColor = Theme.Surface;
         listHistory.ForeColor = Theme.Text;
@@ -93,13 +89,12 @@ public partial class LeadFileDialog : Form
     private async Task MoveStageAsync()
     {
         if (MoveHandler is null) return;
-        if (cboStage.SelectedIndex < 0)
-        {
-            ShowStatus("Select a stage.", true);
-            return;
-        }
 
-        var request = new MoveStageRequest(_file.Id, (LeadStage)cboStage.SelectedIndex);
+        using var dialog = new MoveStageDialog();
+        if (dialog.ShowDialog(this) != DialogResult.OK || dialog.Result is not { } move)
+            return;
+
+        var request = new MoveStageRequest(_file.Id, move.TargetStage, move.Note, move.LostReason);
         btnMoveStage.Enabled = false;
         try
         {

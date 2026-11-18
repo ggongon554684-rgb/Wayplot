@@ -22,3 +22,5 @@ public sealed record LeadCaptured(Guid LeadId, DateTime OccurredAtUtc) : IDomain
 public sealed record InteractionLogged(Guid LeadId, InteractionType Type, InteractionChannel Channel, DateTime OccurredAtUtc) : IDomainEvent;
 public sealed record LeadStageChanged(Guid LeadId, LeadStage From, LeadStage To, DateTime OccurredAtUtc) : IDomainEvent;
 public sealed record PaymentConfirmed(Guid DealId, Guid PaymentId, DateTime OccurredAtUtc) : IDomainEvent;
+public sealed record DealChanged(Guid DealId, Guid ParcelId, Guid ContactId, DateTime OccurredAtUtc) : IDomainEvent;
+public sealed record PayoutChanged(Guid DealId, Guid PayoutId, PayoutKind Kind, DateTime OccurredAtUtc) : IDomainEvent;

@@ -125,6 +125,10 @@ public sealed class InteractionService(
                 type = InteractionType.Inquiry;
                 channel = InteractionChannel.Note;
                 break;
+            case InteractionLogKinds.Email:
+                type = InteractionType.Inquiry;
+                channel = InteractionChannel.Email;
+                break;
             case InteractionLogKinds.Complaint:
                 type = InteractionType.Complaint;
                 if (!Enum.IsDefined(typeof(InteractionChannel), selectedChannel)) return false;

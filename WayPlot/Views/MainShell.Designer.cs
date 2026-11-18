@@ -21,7 +21,9 @@ namespace WayPlot.Views
         {
             layoutRoot = new TableLayoutPanel();
             pnlHeader = new Panel();
+            headerActions = new FlowLayoutPanel();
             lblWorkspace = new Label();
+            btnSignOut = new Button();
             lblAppName = new Label();
             tabBar = new WayPlot.UI.PillTabBar();
             pnlContent = new Panel();
@@ -48,7 +50,7 @@ namespace WayPlot.Views
             // 
             // pnlHeader
             // 
-            pnlHeader.Controls.Add(lblWorkspace);
+            pnlHeader.Controls.Add(headerActions);
             pnlHeader.Controls.Add(lblAppName);
             pnlHeader.Dock = DockStyle.Fill;
             pnlHeader.Location = new Point(0, 0);
@@ -56,17 +58,43 @@ namespace WayPlot.Views
             pnlHeader.Name = "pnlHeader";
             pnlHeader.Size = new Size(1104, 64);
             pnlHeader.TabIndex = 0;
-            // 
+            //
+            // headerActions
+            //
+            headerActions.AutoSize = true;
+            headerActions.Controls.Add(btnSignOut);
+            headerActions.Controls.Add(lblWorkspace);
+            headerActions.Dock = DockStyle.Right;
+            headerActions.FlowDirection = FlowDirection.RightToLeft;
+            headerActions.Location = new Point(684, 0);
+            headerActions.Margin = new Padding(0);
+            headerActions.Name = "headerActions";
+            headerActions.Padding = new Padding(0, 10, 0, 0);
+            headerActions.Size = new Size(420, 64);
+            headerActions.TabIndex = 2;
+            headerActions.WrapContents = false;
+            //
             // lblWorkspace
-            // 
+            //
             lblWorkspace.AutoSize = true;
-            lblWorkspace.Dock = DockStyle.Right;
-            lblWorkspace.Location = new Point(1012, 0);
+            lblWorkspace.Location = new Point(0, 0);
+            lblWorkspace.Margin = new Padding(0, 7, 12, 0);
             lblWorkspace.Name = "lblWorkspace";
-            lblWorkspace.Size = new Size(92, 23);
+            lblWorkspace.Size = new Size(270, 46);
             lblWorkspace.TabIndex = 1;
             lblWorkspace.Text = "Workspace";
             lblWorkspace.TextAlign = ContentAlignment.MiddleRight;
+            //
+            // btnSignOut
+            //
+            btnSignOut.AutoSize = true;
+            btnSignOut.Location = new Point(0, 0);
+            btnSignOut.Margin = new Padding(0);
+            btnSignOut.Name = "btnSignOut";
+            btnSignOut.Size = new Size(92, 38);
+            btnSignOut.TabIndex = 2;
+            btnSignOut.Text = "Sign out";
+            btnSignOut.UseVisualStyleBackColor = false;
             // 
             // lblAppName
             // 
@@ -126,7 +154,9 @@ namespace WayPlot.Views
 
         private TableLayoutPanel layoutRoot;
         private Panel pnlHeader;
+        private FlowLayoutPanel headerActions;
         private Label lblWorkspace;
+        private Button btnSignOut;
         private Label lblAppName;
         private WayPlot.UI.PillTabBar tabBar;
         private Panel pnlContent;

@@ -318,6 +318,10 @@ namespace WayPlot.infrastructure.Migrations.Tenant
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
 
+                    b.Property<decimal?>("RefundedAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
                     b.Property<decimal>("ReservationFee")
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
@@ -331,6 +335,20 @@ namespace WayPlot.infrastructure.Migrations.Tenant
                         .IsRequired()
                         .HasMaxLength(30)
                         .HasColumnType("nvarchar(30)");
+
+                    b.Property<DateTime?>("TerminatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("TerminatedByStaffId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TerminationMoneyOutcome")
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<string>("TerminationReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
 
                     b.Property<DateTime>("UpdatedAtUtc")
                         .HasColumnType("datetime2");
@@ -986,6 +1004,69 @@ namespace WayPlot.infrastructure.Migrations.Tenant
                     b.ToTable("ParcelPhotos");
                 });
 
+            modelBuilder.Entity("WayPlot.domain.Entities.ParcelPhotoData", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("BranchId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<byte[]>("ImageBytes")
+                        .IsRequired()
+                        .HasColumnType("varbinary(max)");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("ParcelPhotoId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("SizeBytes")
+                        .HasColumnType("int");
+
+                    b.Property<string>("SyncStatus")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<byte[]>("ThumbnailBytes")
+                        .IsRequired()
+                        .HasColumnType("varbinary(max)");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedBy")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ParcelPhotoId")
+                        .IsUnique();
+
+                    b.ToTable("ParcelPhotoData");
+                });
+
             modelBuilder.Entity("WayPlot.domain.Entities.Payment", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1531,6 +1612,15 @@ namespace WayPlot.infrastructure.Migrations.Tenant
                         .IsRequired();
 
                     b.Navigation("Parcel");
+                });
+
+            modelBuilder.Entity("WayPlot.domain.Entities.ParcelPhotoData", b =>
+                {
+                    b.HasOne("WayPlot.domain.Entities.ParcelPhoto", null)
+                        .WithOne()
+                        .HasForeignKey("WayPlot.domain.Entities.ParcelPhotoData", "ParcelPhotoId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("WayPlot.domain.Entities.Payment", b =>

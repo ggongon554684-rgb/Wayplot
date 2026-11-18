@@ -4,6 +4,9 @@
     <Compile Update="LoginForm.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Update="UI\LeafletMapControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
     <Compile Update="UI\PillTabBar.cs">
       <SubType>Component</SubType>
     </Compile>
@@ -17,6 +20,9 @@
       <SubType>Component</SubType>
     </Compile>
     <Compile Update="Views\AttachLeadDialog.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Update="Views\ChangePriceDialog.cs">
       <SubType>Form</SubType>
     </Compile>
     <Compile Update="Views\CommissionRulesDialog.cs">
@@ -58,8 +64,20 @@
     <Compile Update="Views\ComingNextView.cs">
       <SubType>UserControl</SubType>
     </Compile>
+    <Compile Update="Views\OwnerDialog.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Update="Views\ParcelDialog.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Update="Views\ParcelMapView.cs">
       <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Update="Views\PhotoViewerDialog.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Update="Views\ReassignDialog.cs">
+      <SubType>Form</SubType>
     </Compile>
     <Compile Update="Views\RecordPaymentDialog.cs">
       <SubType>Form</SubType>
