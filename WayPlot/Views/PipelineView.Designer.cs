@@ -73,6 +73,7 @@ namespace WayPlot.Views
 
             splitDetail.Dock = DockStyle.Fill;
             splitDetail.Orientation = Orientation.Vertical;
+            splitDetail.Size = new Size(1100, 500);
             splitDetail.SplitterWidth = 6;
             splitDetail.Panel1MinSize = 420;
             splitDetail.Panel2MinSize = 330;

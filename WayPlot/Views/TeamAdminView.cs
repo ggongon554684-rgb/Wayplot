@@ -126,13 +126,16 @@ public partial class TeamAdminView : UserControl
     {
         cboTarget.Items.Clear();
         cboSource.Items.Clear();
+        cboDestination.Items.Clear();
         foreach (var agent in _data!.ActiveAgents)
         {
             cboTarget.Items.Add(agent);
             cboSource.Items.Add(agent);
+            cboDestination.Items.Add(agent);
         }
         if (cboTarget.Items.Count > 0) cboTarget.SelectedIndex = 0;
         if (cboSource.Items.Count > 0) cboSource.SelectedIndex = 0;
+        if (cboDestination.Items.Count > 1) cboDestination.SelectedIndex = 1;
     }
 
     private void PopulateBranches()

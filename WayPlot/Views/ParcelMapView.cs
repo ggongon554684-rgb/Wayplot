@@ -260,9 +260,9 @@ public partial class ParcelMapView : UserControl, IParcelMapView
         _currentParcelId = parcel.Id;
         _currentParcel = parcel;
         var wasCollapsed = layoutMain.Panel2Collapsed;
-        layoutMain.Panel2Collapsed = false;
         if (wasCollapsed)
             ApplyPreferredInspectorWidth();
+        layoutMain.Panel2Collapsed = false;
         layoutMain.PerformLayout();
         detailsLayout.Visible = true;
         _map.SelectParcel(parcel.Id);

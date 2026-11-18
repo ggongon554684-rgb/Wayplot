@@ -354,8 +354,8 @@ public partial class ContactsView : UserControl, IContactsView
     {
         if (_presenter is null) return;
         lblDetailName.Text = person.Name;
-        splitMain.Panel2Collapsed = false;
         ApplyPreferredDetailWidth();
+        splitMain.Panel2Collapsed = false;
 
         detailBody.Controls.Clear();
         detailBody.SuspendLayout();
@@ -831,7 +831,6 @@ public partial class ContactsView : UserControl, IContactsView
 
     private void ApplyPreferredDetailWidth()
     {
-        if (splitMain.Panel2Collapsed) return;
         var maxWidth = splitMain.ClientSize.Width - splitMain.Panel1MinSize - splitMain.SplitterWidth;
         if (maxWidth < splitMain.Panel2MinSize) return;
         var width = Math.Clamp(_preferredDetailWidth, splitMain.Panel2MinSize, maxWidth);

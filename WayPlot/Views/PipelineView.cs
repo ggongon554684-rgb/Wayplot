@@ -366,8 +366,8 @@ public partial class PipelineView : UserControl, IPipelineView
     {
         if (_presenter is null || card is null) return;
         _selectedLeadId = card.LeadId;
-        splitDetail.Panel2Collapsed = false;
         ApplyPreferredDetailWidth();
+        splitDetail.Panel2Collapsed = false;
         lblContact.Text = card.ContactName;
         lblParcel.Text = card.ParcelLabel;
         lblStage.Text = card.Stage.ToString();
