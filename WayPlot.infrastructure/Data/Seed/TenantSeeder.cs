@@ -25,6 +25,10 @@ public sealed class TenantSeeder(
 {
     // ---- Fixed demo data (hand-written, so every run is identical) ----
 
+    private const string DemoSeedStateKey = "demo.seed-state";
+    private const string DemoSeedInProgress = "InProgress";
+    private const string DemoSeedComplete = "Complete";
+
     private const double CenterLatitude = 14.58;
     private const double CenterLongitude = 121.17;
     private const double MetersPerDegreeLat = 111_000.0;
@@ -112,18 +116,29 @@ public sealed class TenantSeeder(
         if (!session.IsStarted)
             return RuleResult.Fail("Sign in first. The seeder needs an open tenant database.");
 
-        if (userSession.Tier == Tier.C)
-            await EnsureTierCBranchesAsync();
-
-        var parcels = await parcelService.ListAsync();
-        if (!parcels.Ok || parcels.Value is null)
-            return RuleResult.Fail(parcels.Message);
-        if (parcels.Value.Count > 0)
-            return RuleResult.Success("Demo data skipped: this tenant already has parcels.");
-
         try
         {
-            return await SeedCoreAsync(companyName);
+            await using var lockContext = await AcquireSeedLockAsync();
+            var state = await lockContext.Settings.AsNoTracking()
+                .Where(setting => setting.Key == DemoSeedStateKey)
+                .Select(setting => setting.Value)
+                .FirstOrDefaultAsync();
+            var parcelCount = await lockContext.Parcels.CountAsync();
+
+            if (state == DemoSeedInProgress)
+                return RuleResult.Fail("A previous demo seed stopped partway through. Use Reset demo data before trying again.");
+            if (parcelCount > 0)
+                return RuleResult.Success("Demo data skipped: this tenant already has parcels.");
+
+            await SetDemoSeedStateAsync(lockContext, DemoSeedInProgress);
+            if (userSession.Tier == Tier.C)
+                await EnsureTierCBranchesAsync();
+
+            var seeded = await SeedCoreAsync(companyName);
+            if (!seeded.Ok)
+                return seeded;
+            await SetDemoSeedStateAsync(lockContext, DemoSeedComplete);
+            return seeded;
         }
         catch (SeedFailure ex)
         {
@@ -132,6 +147,10 @@ public sealed class TenantSeeder(
         catch (Exception ex) when (ex is SqlException or DbUpdateException)
         {
             return RuleResult.Fail("Demo data stopped early because the database refused a save. Use Reset demo data to start clean.");
+        }
+        catch (Exception)
+        {
+            return RuleResult.Fail("Demo data could not be prepared. Use Reset demo data to start clean.");
         }
     }
 
@@ -162,6 +181,9 @@ public sealed class TenantSeeder(
                 await db.Contacts.IgnoreQueryFilters().ExecuteDeleteAsync();
                 await db.Owners.IgnoreQueryFilters().ExecuteDeleteAsync();
                 await db.Outbox.ExecuteDeleteAsync();
+                await db.Settings.IgnoreQueryFilters()
+                    .Where(setting => setting.Key == DemoSeedStateKey)
+                    .ExecuteDeleteAsync();
 
                 await tx.CommitAsync();
             }
@@ -180,6 +202,43 @@ public sealed class TenantSeeder(
     {
         await using var db = dbFactory.Create(session.ConnectionString);
         await TenantBranchProvisioner.EnsureTierCAsync(db);
+    }
+
+    private async Task<TenantDbContext> AcquireSeedLockAsync()
+    {
+        var db = dbFactory.Create(session.ConnectionString);
+        try
+        {
+            await db.Database.OpenConnectionAsync();
+            await using var command = db.Database.GetDbConnection().CreateCommand();
+            command.CommandTimeout = 75;
+            command.CommandText = "DECLARE @result int; EXEC @result = sys.sp_getapplock " +
+                "@Resource = @resource, @LockMode = N'Exclusive', @LockOwner = N'Session', @LockTimeout = 60000; " +
+                "SELECT @result;";
+            System.Data.Common.DbParameter resource = command.CreateParameter();
+            resource.ParameterName = "@resource";
+            resource.Value = $"WayPlotDemoSeed:{userSession.TenantId ?? Guid.Empty:D}";
+            command.Parameters.Add(resource);
+            var result = Convert.ToInt32(await command.ExecuteScalarAsync(), CultureInfo.InvariantCulture);
+            if (result < 0)
+                throw new InvalidOperationException("Could not acquire the tenant demo seed lock.");
+            return db;
+        }
+        catch
+        {
+            await db.DisposeAsync();
+            throw;
+        }
+    }
+
+    private static async Task SetDemoSeedStateAsync(TenantDbContext db, string state)
+    {
+        var setting = await db.Settings.FirstOrDefaultAsync(item => item.Key == DemoSeedStateKey);
+        if (setting is null)
+            db.Settings.Add(new Setting { Key = DemoSeedStateKey, Value = state });
+        else
+            setting.Value = state;
+        await db.SaveChangesAsync();
     }
 
     private async Task<RuleResult> SeedCoreAsync(string? companyName)

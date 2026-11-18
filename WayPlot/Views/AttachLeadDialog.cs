@@ -7,12 +7,13 @@ namespace WayPlot.Views;
 
 public partial class AttachLeadDialog : Form
 {
-    private readonly System.Windows.Forms.Timer _searchTimer = new() { Interval = 350 };
+    private readonly System.Windows.Forms.Timer _searchTimer;
     private int _searchToken;
 
     public AttachLeadDialog()
     {
         InitializeComponent();
+        _searchTimer = new System.Windows.Forms.Timer(components!) { Interval = 350 };
         ApplyTheme();
 
         btnSearch.Click += async (_, _) => await SearchAsync();
@@ -31,7 +32,6 @@ public partial class AttachLeadDialog : Form
             await SearchAsync();
         };
         Shown += async (_, _) => await SearchAsync();
-        FormClosed += (_, _) => { _searchTimer.Stop(); _searchTimer.Dispose(); };
         listContacts.Resize += (_, _) => FitColumns();
     }
 

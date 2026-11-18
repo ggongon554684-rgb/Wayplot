@@ -23,19 +23,19 @@ public partial class PipelineView : UserControl, IPipelineView
         edgeScrollTimer.Tick += (_, _) => ScrollBoardFromMouse();
         ApplyTheme();
         txtSearch.TextChanged += (_, _) => { filterTimer.Stop(); filterTimer.Start(); };
-        filterTimer.Tick += async (_, _) => { filterTimer.Stop(); await ReloadAsync(); };
-        cboParcel.SelectedIndexChanged += async (_, _) => await ReloadAsync();
-        cboAgent.SelectedIndexChanged += async (_, _) => await ReloadAsync();
-        chkOlder.CheckedChanged += async (_, _) => await ReloadAsync();
+        filterTimer.Tick += (_, _) => { filterTimer.Stop(); _ = RunUiAsync(ReloadAsync); };
+        cboParcel.SelectedIndexChanged += (_, _) => _ = RunUiAsync(ReloadAsync);
+        cboAgent.SelectedIndexChanged += (_, _) => _ = RunUiAsync(ReloadAsync);
+        chkOlder.CheckedChanged += (_, _) => _ = RunUiAsync(ReloadAsync);
         splitDetail.SplitterMoved += (_, _) => SaveDetailWidth();
-        btnMove.Click += async (_, _) => await OpenMoveMenuAsync();
-        btnLogCall.Click += async (_, _) => await LogAsync(InteractionLogKinds.Call);
-        btnLogText.Click += async (_, _) => await LogAsync(InteractionLogKinds.Text);
-        btnLogEmail.Click += async (_, _) => await LogAsync(InteractionLogKinds.Email);
-        btnLogViewing.Click += async (_, _) => await LogAsync(InteractionLogKinds.Viewing);
-        btnAddNote.Click += async (_, _) => await LogAsync(InteractionLogKinds.Note);
-        btnRequestClosed.Click += async (_, _) => await RequestClosedAsync();
-        btnSwitchLot.Click += async (_, _) => await SwitchLotAsync();
+        btnMove.Click += (_, _) => _ = RunUiAsync(OpenMoveMenuAsync);
+        btnLogCall.Click += (_, _) => _ = RunUiAsync(() => LogAsync(InteractionLogKinds.Call));
+        btnLogText.Click += (_, _) => _ = RunUiAsync(() => LogAsync(InteractionLogKinds.Text));
+        btnLogEmail.Click += (_, _) => _ = RunUiAsync(() => LogAsync(InteractionLogKinds.Email));
+        btnLogViewing.Click += (_, _) => _ = RunUiAsync(() => LogAsync(InteractionLogKinds.Viewing));
+        btnAddNote.Click += (_, _) => _ = RunUiAsync(() => LogAsync(InteractionLogKinds.Note));
+        btnRequestClosed.Click += (_, _) => _ = RunUiAsync(RequestClosedAsync);
+        btnSwitchLot.Click += (_, _) => _ = RunUiAsync(SwitchLotAsync);
         btnCloseDetail.Click += (_, _) => CloseDetail();
     }
 
@@ -60,12 +60,20 @@ public partial class PipelineView : UserControl, IPipelineView
 
     protected override async void OnLoad(EventArgs e)
     {
-        base.OnLoad(e);
-        LoadDetailWidth();
-        if (_presenter is not null && !DesignMode)
+        try
         {
-            await LoadFiltersAsync();
-            await ReloadAsync();
+            base.OnLoad(e);
+            LoadDetailWidth();
+            if (_presenter is not null && !DesignMode)
+            {
+                await LoadFiltersAsync();
+                await ReloadAsync();
+            }
+        }
+        catch (Exception)
+        {
+            if (!IsDisposed)
+                ShowStatus("Could not load the pipeline. Try again.", true);
         }
     }
 
@@ -152,16 +160,12 @@ public partial class PipelineView : UserControl, IPipelineView
                 SharedToolTip = _tooltip
             };
             control.SetColumn(column, _presenter?.IsAdmin == true);
-            control.CardSelected = SelectCard;
+            control.CardSelected = card => _ = RunUiAsync(() => SelectCardAsync(card));
             if (_presenter?.CanMutate == true)
             {
-                control.MoveRequested = async card => await OpenMoveMenuAsync(card.LeadId);
-                control.DragStarting = async card =>
-                {
-                    await StartDragAsync(card.LeadId);
-                    return _dragMoves.Values.ToList();
-                };
-                control.LeadDropped = async (leadId, stageKey) => await DropAsync(leadId, stageKey);
+                control.MoveRequested = card => _ = RunUiAsync(() => OpenMoveMenuAsync(card.LeadId));
+                control.DragStarting = StartDragSafelyAsync;
+                control.LeadDropped = (leadId, stageKey) => _ = RunUiAsync(() => DropAsync(leadId, stageKey));
             }
             boardPanel.Controls.Add(control);
         }
@@ -170,7 +174,7 @@ public partial class PipelineView : UserControl, IPipelineView
         {
             var selected = board.Columns.SelectMany(c => c.Cards).FirstOrDefault(c => c.LeadId == id);
             if (selected is not null)
-                _ = SelectCardAsync(selected);
+                _ = RunUiAsync(() => SelectCardAsync(selected));
         }
     }
 
@@ -198,6 +202,21 @@ public partial class PipelineView : UserControl, IPipelineView
                 column.SetDropState(false, "This target stage is unavailable.");
         }
         edgeScrollTimer.Start();
+    }
+
+    private async Task<IReadOnlyList<LeadMoveOptionDto>> StartDragSafelyAsync(LeadCardDto card)
+    {
+        try
+        {
+            await StartDragAsync(card.LeadId);
+            return _dragMoves.Values.ToList();
+        }
+        catch (Exception)
+        {
+            if (!IsDisposed)
+                ShowStatus("Could not load pipeline actions. Try again.", true);
+            return [];
+        }
     }
 
     private async Task DropAsync(Guid leadId, string stageKey)
@@ -237,8 +256,8 @@ public partial class PipelineView : UserControl, IPipelineView
             var stageName = _presenter.Stages.FirstOrDefault(stage =>
                 stage.Key == move.TargetStage.ToString())?.Name
                 ?? move.TargetStage.ToString();
-            menu.Items.Add(stageName, null, async (_, _) =>
-                await ExecuteMoveAsync(leadId, move.TargetStage, move));
+            menu.Items.Add(stageName, null, (_, _) =>
+                _ = RunUiAsync(() => ExecuteMoveAsync(leadId, move.TargetStage, move)));
         }
         if (btnMove.IsHandleCreated)
             menu.Show(btnMove, new Point(0, btnMove.Height));
@@ -343,9 +362,6 @@ public partial class PipelineView : UserControl, IPipelineView
         await SelectCardAsync(card);
     }
 
-    private async void SelectCard(LeadCardDto card) =>
-        await SelectCardAsync(card);
-
     private async Task SelectCardAsync(LeadCardDto? card)
     {
         if (_presenter is null || card is null) return;
@@ -378,6 +394,19 @@ public partial class PipelineView : UserControl, IPipelineView
             }
         }
         UpdateRoleActions();
+    }
+
+    private async Task RunUiAsync(Func<Task> action)
+    {
+        try
+        {
+            await action();
+        }
+        catch (Exception)
+        {
+            if (!IsDisposed)
+                ShowStatus("The pipeline action could not be completed. Try again.", true);
+        }
     }
 
     private void CloseDetail()

@@ -16,6 +16,18 @@ internal sealed class OwnerRepository(TenantDbContext db) : IOwnerRepository
     public async Task<IReadOnlyList<Owner>> ListAsync() =>
         await db.Owners.AsNoTracking().OrderBy(o => o.Name).ToListAsync();
 
+    public async Task<IReadOnlyList<Owner>> ListForVisibleParcelsAsync(TenantDataScope scope)
+    {
+        if (scope.Kind == TenantDataScopeKind.Tenant)
+            return await db.Owners.AsNoTracking().OrderBy(owner => owner.Name).ToListAsync();
+
+        var parcels = ParcelRepository.ApplyParcelScope(db.Parcels.AsNoTracking(), scope);
+        return await db.Owners.AsNoTracking()
+            .Where(owner => parcels.Any(parcel => parcel.OwnerId == owner.Id))
+            .OrderBy(owner => owner.Name)
+            .ToListAsync();
+    }
+
     public void Add(Owner owner) => db.Owners.Add(owner);
 }
 
@@ -26,6 +38,11 @@ internal sealed class ParcelRepository(TenantDbContext db) : IParcelRepository
 
     public async Task<IReadOnlyList<Parcel>> ListAsync() =>
         await db.Parcels.AsNoTracking().Include(p => p.Owner).OrderBy(p => p.Label).ToListAsync();
+
+    public async Task<IReadOnlyList<Parcel>> ListVisibleToAsync(TenantDataScope scope) =>
+        await ApplyParcelScope(db.Parcels.AsNoTracking().Include(parcel => parcel.Owner), scope)
+            .OrderBy(parcel => parcel.Label)
+            .ToListAsync();
 
     public Task<bool> LabelExistsAsync(string label, Guid? exceptParcelId = null)
     {
@@ -41,6 +58,16 @@ internal sealed class ParcelRepository(TenantDbContext db) : IParcelRepository
 
     public void Touch(Parcel parcel) =>
         db.Entry(parcel).Property(p => p.Version).IsModified = true;
+
+    internal static IQueryable<Parcel> ApplyParcelScope(IQueryable<Parcel> query, TenantDataScope scope) =>
+        scope.Kind switch
+        {
+            TenantDataScopeKind.Agent when scope.StaffId is { } staffId =>
+                query.Where(parcel => parcel.AssignedStaffId == staffId),
+            TenantDataScopeKind.Branch when scope.BranchId is { } branchId =>
+                query.Where(parcel => parcel.BranchId == branchId),
+            _ => query
+        };
 }
 
 internal sealed class ParcelPhotoRepository(TenantDbContext db) : IParcelPhotoRepository
@@ -513,16 +540,25 @@ internal sealed class DealRepository(TenantDbContext db) : IDealRepository
             .OrderByDescending(deal => deal.CreatedAtUtc)
             .ToListAsync();
 
-    public async Task<IReadOnlyList<Deal>> ListByContactAsync(Guid contactId) =>
-        await db.Deals.AsNoTracking()
+    public async Task<IReadOnlyList<Deal>> ListByContactAsync(Guid contactId, TenantDataScope? scope = null)
+    {
+        IQueryable<Deal> query = db.Deals.AsNoTracking()
             .Include(deal => deal.Lead).ThenInclude(lead => lead.Contact)
             .Include(deal => deal.Lead).ThenInclude(lead => lead.Parcel)
             .Include(deal => deal.Payments)
             .Include(deal => deal.Parcel)
-            .Where(deal => deal.ContactId == contactId)
+            .Where(deal => deal.ContactId == contactId);
+
+        if (scope?.Kind == TenantDataScopeKind.Agent && scope.Value.StaffId is { } staffId)
+            query = query.Where(deal => deal.AgentStaffId == staffId);
+        else if (scope?.Kind == TenantDataScopeKind.Branch && scope.Value.BranchId is { } branchId)
+            query = query.Where(deal => deal.BranchId == branchId);
+
+        return await query
             .OrderByDescending(deal => deal.ConfirmedAtUtc ?? deal.CreatedAtUtc)
             .ThenByDescending(deal => deal.Id)
             .ToListAsync();
+    }
 
     public void Add(Deal deal) => db.Deals.Add(deal);
 

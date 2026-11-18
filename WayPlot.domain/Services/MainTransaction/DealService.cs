@@ -57,15 +57,7 @@ public sealed class DealService(
             return ServiceResult<IReadOnlyList<DealSummaryDto>>.Fail(scope.Message);
 
         await using var uow = uowFactory.Create();
-        var deals = await uow.Deals.ListByContactAsync(contactId);
-        if (scope.Value.Kind == TenantDataScopeKind.Agent)
-        {
-            deals = deals.Where(deal => deal.AgentStaffId == scope.Value.StaffId).ToList();
-        }
-        else if (scope.Value.Kind == TenantDataScopeKind.Branch)
-        {
-            deals = deals.Where(deal => deal.BranchId == scope.Value.BranchId).ToList();
-        }
+        var deals = await uow.Deals.ListByContactAsync(contactId, scope.Value);
         var agentIds = deals.Select(deal => deal.AgentStaffId).Distinct().ToArray();
         var agentNames = new Dictionary<Guid, string>();
         if (agentIds.Length > 0)
@@ -80,11 +72,17 @@ public sealed class DealService(
 
     public async Task<ServiceResult<bool>> RefreshDealStatusesAsync()
     {
-        await using var uow = uowFactory.Create();
-        var today = timeProvider.GetLocalNow().Date;
-        var deals = await uow.Deals.ListAsync(null, null);
-        foreach (var deal in deals)
+        Guid[] dealIds;
+        await using (var readUow = uowFactory.Create())
+            dealIds = (await readUow.Deals.ListAsync(null, null)).Select(deal => deal.Id).ToArray();
+
+        var conflicts = 0;
+        foreach (var dealId in dealIds)
         {
+            await using var uow = uowFactory.Create();
+            var deal = await uow.Deals.GetAsync(dealId);
+            if (deal is null)
+                continue;
             if (deal.ConfirmedAtUtc is null || !deal.IsActive
                 || deal.Status is DealStatus.FullyPaid or DealStatus.Cancelled or DealStatus.Defaulted)
                 continue;
@@ -95,18 +93,19 @@ public sealed class DealService(
                 continue;
             deal.Status = desired;
             uow.Deals.Touch(deal);
-        }
 
-        try
-        {
-            await uow.ExecuteInTransactionAsync(async () => await uow.SaveAsync());
+            try
+            {
+                await uow.ExecuteInTransactionAsync(async () => await uow.SaveAsync());
+            }
+            catch (DealLifecycleConcurrencyConflictException)
+            {
+                conflicts++;
+            }
         }
-        catch (DealLifecycleConcurrencyConflictException)
-        {
-            // A concurrent deal update wins; callers can refresh the remaining rows later.
-            return ServiceResult<bool>.Success(true, "Deal statuses refreshed. Conflicting rows were skipped.");
-        }
-        return ServiceResult<bool>.Success(true, "Deal statuses refreshed.");
+        return ServiceResult<bool>.Success(true, conflicts == 0
+            ? "Deal statuses refreshed."
+            : $"Deal statuses refreshed. {conflicts} conflicting row(s) were skipped.");
     }
 
     public async Task<ServiceResult<DealTerminationSummary>> GetTerminationSummaryAsync(Guid dealId)

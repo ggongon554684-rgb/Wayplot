@@ -13,6 +13,7 @@ public static class TenantBranchProvisioner
         TenantDbContext db,
         CancellationToken ct = default)
     {
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
         var branches = await db.Branches.IgnoreQueryFilters().ToListAsync(ct);
         var mandaluyong = FindSingle(branches, "Mandaluyong");
         var antipolo = FindSingle(branches, "Antipolo");
@@ -67,6 +68,8 @@ public static class TenantBranchProvisioner
 
         if (assignmentsSet > 0)
             await db.SaveChangesAsync(ct);
+
+        await transaction.CommitAsync(ct);
 
         return new BranchProvisionResult(ensured, assignmentsSet);
     }

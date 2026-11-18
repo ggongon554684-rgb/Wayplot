@@ -24,7 +24,7 @@ public partial class ContactsView : UserControl, IContactsView
     public ContactsView()
     {
         InitializeComponent();
-        transientStatusTimer = new System.Windows.Forms.Timer { Interval = 4000 };
+        transientStatusTimer = new System.Windows.Forms.Timer(components!) { Interval = 4000 };
         transientStatusTimer.Tick += (_, _) => RestoreStatus();
         ApplyTheme();
 

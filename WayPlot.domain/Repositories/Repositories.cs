@@ -12,6 +12,7 @@ public interface IOwnerRepository
 {
     Task<Owner?> GetAsync(Guid id);
     Task<IReadOnlyList<Owner>> ListAsync();
+    Task<IReadOnlyList<Owner>> ListForVisibleParcelsAsync(TenantDataScope scope);
     void Add(Owner owner);
 }
 
@@ -21,6 +22,7 @@ public interface IParcelRepository
     Task<Parcel?> GetAsync(Guid id);
     /// <summary>All parcels with Owner loaded, ordered by Label.</summary>
     Task<IReadOnlyList<Parcel>> ListAsync();
+    Task<IReadOnlyList<Parcel>> ListVisibleToAsync(TenantDataScope scope);
     /// <summary>Checks labels across active and archived parcels, optionally excluding the edited parcel.</summary>
     Task<bool> LabelExistsAsync(string label, Guid? exceptParcelId = null);
     void Add(Parcel parcel);
@@ -147,7 +149,7 @@ public interface IDealRepository
     Task<bool> HasOtherLiveDealForContactAsync(Guid contactId, Guid exceptDealId);
     Task<IReadOnlyList<DealStatus>> ListStatusesByParcelAsync(Guid parcelId);
     Task<IReadOnlyList<Deal>> ListByLeadAsync(Guid leadId);
-    Task<IReadOnlyList<Deal>> ListByContactAsync(Guid contactId);
+    Task<IReadOnlyList<Deal>> ListByContactAsync(Guid contactId, TenantDataScope? scope = null);
     void Add(Deal deal);
     void Touch(Deal deal);
 }
