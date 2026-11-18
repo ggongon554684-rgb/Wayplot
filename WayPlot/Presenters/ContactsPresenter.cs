@@ -17,12 +17,15 @@ public sealed class ContactsPresenter(
     IContactsView view,
     ContactService contacts,
     ContactImportService imports,
-    ICurrentUser user)
+    ICurrentUser user,
+    TenantAccessPolicy access)
 {
     private int _latest;
 
-    public bool CanImport => user.Role is Roles.Agent or Roles.TenantAdmin;
+    public bool CanImport => (user.Role is Roles.Agent or Roles.TenantAdmin) && user.UserId is not null;
     public bool CanAssignImportedContacts => user.Role == Roles.TenantAdmin;
+    public bool CanCapture => access.CanMutateData;
+    public string CaptureUnavailableReason => access.MutationUnavailableReason;
 
     /// <summary>notice replaces the usual "N contacts" line (used to show the result of a save).</summary>
     public async Task LoadAsync(string? search = null, string? notice = null)

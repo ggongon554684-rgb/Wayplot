@@ -15,9 +15,13 @@ public interface IInteractionsView
 public sealed class InteractionsPresenter(
     IInteractionsView view,
     InteractionService interactions,
-    LeadService leads)
+    LeadService leads,
+    TenantAccessPolicy access)
 {
     private int _latest;
+
+    public bool CanLogInteractions => access.CanMutateData;
+    public string MutationUnavailableReason => access.MutationUnavailableReason;
 
     public async Task LoadAsync(InteractionType? type, string? notice = null)
     {

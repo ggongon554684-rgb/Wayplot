@@ -15,23 +15,34 @@ public sealed class LeadService(
     ITenantUnitOfWorkFactory uowFactory,
     IDomainEventDispatcher events,
     ICurrentUser user,
-    IClock clock)
+    IClock clock,
+    TenantAccessPolicy access)
 {
     public async Task<LeadResult> AttachContactToParcelAsync(AttachLeadRequest request)
     {
+        var permission = access.RequireDataMutation("attach contacts to parcels as leads");
+        if (!permission.Ok)
+            return LeadResult.Fail(permission.Message);
+        if (access.IsAgent && request.AssignedStaffId is { } assignedStaffId && assignedStaffId != access.CurrentStaffId)
+            return LeadResult.Fail("Agents can only attach leads assigned to themselves.");
+
+        var scope = access.GetDataReadScope("contacts and leads");
+        if (!scope.Ok)
+            return LeadResult.Fail(scope.Message);
+
         await using var uow = uowFactory.Create();
 
-        var contact = await uow.Contacts.GetAsync(request.ContactId);
+        var contact = await uow.Contacts.GetAsync(request.ContactId, scope.Value);
         if (contact is null)
-            return LeadResult.Fail("That contact was not found.");
+            return LeadResult.Fail("Cannot attach this contact: it was not found or is outside your access scope.");
 
         var parcel = await uow.Parcels.GetAsync(request.ParcelId);
         if (parcel is null)
             return LeadResult.Fail("That parcel was not found.");
 
-        if (request.AssignedStaffId is { } assignedStaffId
-            && assignedStaffId != user.UserId
-            && !await uow.Staff.IsActiveAgentAsync(assignedStaffId))
+        if (request.AssignedStaffId is { } requestedStaffId
+            && requestedStaffId != user.UserId
+            && !await uow.Staff.IsActiveAgentAsync(requestedStaffId))
             return LeadResult.Fail("The assigned agent was not found or is inactive.");
 
         if (await uow.Leads.ActiveLeadExistsAsync(contact.Id, parcel.Id))
@@ -46,7 +57,7 @@ public sealed class LeadService(
             Parcel = parcel,
             Stage = LeadStage.New,
             LastActivityAtUtc = now,
-            AssignedStaffId = request.AssignedStaffId ?? user.UserId
+            AssignedStaffId = access.IsAgent ? access.CurrentStaffId : request.AssignedStaffId ?? user.UserId
         };
 
         uow.Leads.Add(lead);
@@ -67,16 +78,28 @@ public sealed class LeadService(
         return LeadResult.Success(ToDto(lead), $"{contact.FullName} is now a lead on parcel {parcel.Label}.");
     }
 
-    public async Task<IReadOnlyList<LeadDto>> ListByParcelAsync(Guid parcelId)
+    public async Task<ServiceResult<IReadOnlyList<LeadDto>>> ListByParcelAsync(Guid parcelId)
     {
+        var scope = access.GetDataReadScope("leads");
+        if (!scope.Ok)
+            return ServiceResult<IReadOnlyList<LeadDto>>.Fail(scope.Message);
+
         await using var uow = uowFactory.Create();
-        return (await uow.Leads.ListByParcelAsync(parcelId)).Select(ToDto).ToList();
+        if (await uow.Parcels.GetAsync(parcelId) is null)
+            return ServiceResult<IReadOnlyList<LeadDto>>.Fail("That parcel was not found or has been archived.");
+
+        return ServiceResult<IReadOnlyList<LeadDto>>.Success(
+            (await uow.Leads.ListByParcelAsync(parcelId, scope.Value)).Select(ToDto).ToList());
     }
 
     public async Task<ServiceResult<IReadOnlyList<LeadListItem>>> ListAsync(LeadStage? stage, string? search)
     {
+        var scope = access.GetDataReadScope("leads");
+        if (!scope.Ok)
+            return ServiceResult<IReadOnlyList<LeadListItem>>.Fail(scope.Message);
+
         await using var uow = uowFactory.Create();
-        var leads = await uow.Leads.ListAsync(stage, search);
+        var leads = await uow.Leads.ListAsync(stage, search, scope: scope.Value);
         IReadOnlyList<LeadListItem> items = leads
             .Select(l => new LeadListItem(
                 l.Id, l.Contact.FullName, l.Parcel.Label, l.Stage, l.OfferAmount, l.LastActivityAtUtc))
@@ -86,13 +109,17 @@ public sealed class LeadService(
 
     public async Task<ServiceResult<LeadFileDto>> GetFileAsync(Guid leadId)
     {
+        var scope = access.GetDataReadScope("lead files");
+        if (!scope.Ok)
+            return ServiceResult<LeadFileDto>.Fail(scope.Message);
+
         await using var uow = uowFactory.Create();
-        var lead = await uow.Leads.GetForDisplayAsync(leadId);
+        var lead = await uow.Leads.GetForDisplayAsync(leadId, scope.Value);
         if (lead is null)
-            return ServiceResult<LeadFileDto>.Fail("That lead was not found.");
+            return ServiceResult<LeadFileDto>.Fail("That lead was not found or is outside your access scope.");
 
         var history = await uow.StageHistories.ListByLeadAsync(leadId);
-        var interactions = await uow.Interactions.ListByLeadAsync(leadId);
+        var interactions = await uow.Interactions.ListByLeadAsync(leadId, scope.Value);
         return ServiceResult<LeadFileDto>.Success(new LeadFileDto(
             lead.Id,
             lead.Contact.FullName,
@@ -107,11 +134,19 @@ public sealed class LeadService(
 
     public async Task<LeadResult> MoveStageAsync(MoveStageRequest request)
     {
+        var permission = access.RequireDataMutation("move lead stages");
+        if (!permission.Ok)
+            return LeadResult.Fail(permission.Message);
+
         await using var uow = uowFactory.Create();
 
         var lead = await uow.Leads.GetAsync(request.LeadId);
         if (lead is null)
             return LeadResult.Fail("That lead was not found.");
+
+        var leadPermission = access.RequireLeadMutation(lead, "move this lead's stage");
+        if (!leadPermission.Ok)
+            return LeadResult.Fail(leadPermission.Message);
 
         // Check first so the agent gets a friendly message. The database index is only the safety net.
         var anotherHoldsParcel = request.ToStage == LeadStage.Negotiation

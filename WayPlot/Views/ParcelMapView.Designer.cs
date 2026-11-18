@@ -1,260 +1,360 @@
-﻿#nullable disable
-namespace WayPlot.Views
+﻿#nullable enable
+namespace WayPlot.Views;
+
+partial class ParcelMapView
 {
-    partial class ParcelMapView
+    private System.ComponentModel.IContainer? components = null;
+    private SplitContainer layoutMain = null!;
+    private TableLayoutPanel mapLayout = null!;
+    private FlowLayoutPanel mapToolbar = null!;
+    private UI.LeafletMapControl mapControl = null!;
+    private Button btnNewParcel = null!;
+    private Button btnPlaceMarker = null!;
+    private Button btnUndo = null!;
+    private Button btnFinish = null!;
+    private Button btnCancel = null!;
+    private Label lblMapHint = null!;
+    private UI.RoundedPanel inspector = null!;
+    private TableLayoutPanel detailsLayout = null!;
+    private TableLayoutPanel parcelHeaderLayout = null!;
+    private TableLayoutPanel facts = null!;
+    private TableLayoutPanel leadHeaderLayout = null!;
+    private Label lblParcelLabel = null!;
+    private Label lblParcelStatus = null!;
+    private Label lblDescription = null!;
+    private Label lblLeadsHeader = null!;
+    private Button btnClosePanel = null!;
+    private Button btnAttachLead = null!;
+    private FlowLayoutPanel parcelActions = null!;
+    private Button btnEditDetails = null!;
+    private Button btnEditShape = null!;
+    private Button btnChangePrice = null!;
+    private Button btnReassign = null!;
+    private Button btnArchive = null!;
+    private ListView listLeads = null!;
+    private ColumnHeader colContact = null!;
+    private ColumnHeader colStage = null!;
+
+    protected override void Dispose(bool disposing)
     {
-        private System.ComponentModel.IContainer components = null;
+        if (disposing)
+            components?.Dispose();
+        base.Dispose(disposing);
+    }
 
-        protected override void Dispose(bool disposing)
-        {
-            if (disposing && (components != null))
-            {
-                components.Dispose();
-            }
-            base.Dispose(disposing);
-        }
-
-        #region Component Designer generated code
-
-        private void InitializeComponent()
-        {
-            layoutMain = new TableLayoutPanel();
-            mapControl = new WayPlot.UI.ParcelMapControl();
-            inspector = new WayPlot.UI.RoundedPanel();
-            lblPrompt = new Label();
-            detailsLayout = new TableLayoutPanel();
-            lblParcelLabel = new Label();
-            lblParcelStatus = new Label();
-            facts = new TableLayoutPanel();
-            lblDescription = new Label();
-            leadHeaderLayout = new TableLayoutPanel();
-            lblLeadsHeader = new Label();
-            btnAttachLead = new Button();
-            listLeads = new ListView();
-            colContact = new ColumnHeader();
-            colStage = new ColumnHeader();
-            layoutMain.SuspendLayout();
-            inspector.SuspendLayout();
-            detailsLayout.SuspendLayout();
-            SuspendLayout();
-            // 
-            // layoutMain
-            // 
-            layoutMain.ColumnCount = 2;
-            layoutMain.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            layoutMain.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 340F));
-            layoutMain.Controls.Add(mapControl, 0, 0);
-            layoutMain.Controls.Add(inspector, 1, 0);
-            layoutMain.Dock = DockStyle.Fill;
-            layoutMain.Location = new Point(0, 0);
-            layoutMain.Margin = new Padding(0);
-            layoutMain.Name = "layoutMain";
-            layoutMain.RowCount = 1;
-            layoutMain.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-            layoutMain.Size = new Size(1104, 504);
-            layoutMain.TabIndex = 0;
-            // 
-            // mapControl
-            // 
-            mapControl.BackColor = Color.FromArgb(245, 247, 251);
-            mapControl.Dock = DockStyle.Fill;
-            mapControl.Location = new Point(0, 0);
-            mapControl.Margin = new Padding(0, 0, 16, 0);
-            mapControl.Name = "mapControl";
-            mapControl.Size = new Size(748, 504);
-            mapControl.TabIndex = 0;
-            // 
-            // inspector
-            // 
-            inspector.BackColor = Color.FromArgb(245, 247, 251);
-            inspector.BorderColor = Color.FromArgb(227, 232, 242);
-            inspector.Controls.Add(detailsLayout);
-            inspector.Controls.Add(lblPrompt);
-            inspector.Dock = DockStyle.Fill;
-            inspector.Location = new Point(764, 0);
-            inspector.Margin = new Padding(0);
-            inspector.Name = "inspector";
-            inspector.Padding = new Padding(20);
-            inspector.Radius = 24;
-            inspector.Size = new Size(340, 504);
-            inspector.TabIndex = 1;
-            // 
-            // lblPrompt
-            // 
-            lblPrompt.Dock = DockStyle.Fill;
-            lblPrompt.Location = new Point(20, 20);
-            lblPrompt.Name = "lblPrompt";
-            lblPrompt.Size = new Size(300, 464);
-            lblPrompt.TabIndex = 1;
-            lblPrompt.Text = "Select a parcel on the map to see its details.";
-            lblPrompt.TextAlign = ContentAlignment.MiddleCenter;
-            lblPrompt.UseMnemonic = false;
-            // 
-            // detailsLayout
-            // 
-            detailsLayout.BackColor = Color.Transparent;
-            detailsLayout.ColumnCount = 1;
-            detailsLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            detailsLayout.Controls.Add(lblParcelLabel, 0, 0);
-            detailsLayout.Controls.Add(lblParcelStatus, 0, 1);
-            detailsLayout.Controls.Add(facts, 0, 2);
-            detailsLayout.Controls.Add(lblDescription, 0, 3);
-            detailsLayout.Controls.Add(leadHeaderLayout, 0, 4);
-            detailsLayout.Controls.Add(listLeads, 0, 5);
-            leadHeaderLayout.Controls.Add(lblLeadsHeader, 0, 0);
-            leadHeaderLayout.Controls.Add(btnAttachLead, 1, 0);
-            leadHeaderLayout.ColumnCount = 2;
-            leadHeaderLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            leadHeaderLayout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            leadHeaderLayout.Dock = DockStyle.Fill;
-            leadHeaderLayout.Margin = new Padding(0, 4, 0, 6);
-            leadHeaderLayout.Name = "leadHeaderLayout";
-            leadHeaderLayout.RowCount = 1;
-            leadHeaderLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-            btnAttachLead.AutoSize = true;
-            btnAttachLead.Margin = new Padding(8, 0, 0, 0);
-            btnAttachLead.Name = "btnAttachLead";
-            btnAttachLead.Text = "Attach lead";
-            btnAttachLead.UseVisualStyleBackColor = false;
-            detailsLayout.Dock = DockStyle.Fill;
-            detailsLayout.Location = new Point(20, 20);
-            detailsLayout.Margin = new Padding(0);
-            detailsLayout.Name = "detailsLayout";
-            detailsLayout.RowCount = 6;
-            detailsLayout.RowStyles.Add(new RowStyle());
-            detailsLayout.RowStyles.Add(new RowStyle());
-            detailsLayout.RowStyles.Add(new RowStyle());
-            detailsLayout.RowStyles.Add(new RowStyle());
-            detailsLayout.RowStyles.Add(new RowStyle());
-            detailsLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-            detailsLayout.Size = new Size(300, 464);
-            detailsLayout.TabIndex = 0;
-            // 
-            // lblParcelLabel
-            // 
-            lblParcelLabel.AutoSize = true;
-            lblParcelLabel.Font = new Font("Segoe UI", 14F, FontStyle.Bold);
-            lblParcelLabel.Location = new Point(0, 0);
-            lblParcelLabel.Margin = new Padding(0);
-            lblParcelLabel.MaximumSize = new Size(296, 0);
-            lblParcelLabel.Name = "lblParcelLabel";
-            lblParcelLabel.Size = new Size(70, 32);
-            lblParcelLabel.TabIndex = 0;
-            lblParcelLabel.Text = "Parcel";
-            lblParcelLabel.UseMnemonic = false;
-            // 
-            // lblParcelStatus
-            // 
-            lblParcelStatus.AutoSize = true;
-            lblParcelStatus.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
-            lblParcelStatus.Location = new Point(0, 32);
-            lblParcelStatus.Margin = new Padding(0, 2, 0, 0);
-            lblParcelStatus.Name = "lblParcelStatus";
-            lblParcelStatus.Size = new Size(98, 23);
-            lblParcelStatus.TabIndex = 1;
-            lblParcelStatus.Text = "● Available";
-            lblParcelStatus.UseMnemonic = false;
-            // 
-            // facts
-            // 
-            facts.AutoSize = true;
-            facts.AutoSizeMode = AutoSizeMode.GrowAndShrink;
-            facts.BackColor = Color.Transparent;
-            facts.ColumnCount = 2;
-            facts.ColumnStyles.Add(new ColumnStyle());
-            facts.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            facts.Dock = DockStyle.Fill;
-            facts.Location = new Point(0, 63);
-            facts.Margin = new Padding(0, 12, 0, 8);
-            facts.Name = "facts";
-            facts.RowCount = 1;
-            facts.RowStyles.Add(new RowStyle());
-            facts.Size = new Size(300, 0);
-            facts.TabIndex = 2;
-            // 
-            // lblDescription
-            // 
-            lblDescription.AutoSize = true;
-            lblDescription.Location = new Point(0, 83);
-            lblDescription.Margin = new Padding(0, 0, 0, 8);
-            lblDescription.MaximumSize = new Size(296, 66);
-            lblDescription.Name = "lblDescription";
-            lblDescription.Size = new Size(97, 23);
-            lblDescription.TabIndex = 3;
-            lblDescription.Text = "Description";
-            lblDescription.UseMnemonic = false;
-            // 
-            // lblLeadsHeader
-            // 
-            lblLeadsHeader.AutoSize = true;
-            lblLeadsHeader.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
-            lblLeadsHeader.Location = new Point(0, 117);
-            lblLeadsHeader.Margin = new Padding(0);
-            lblLeadsHeader.Name = "lblLeadsHeader";
-            lblLeadsHeader.Size = new Size(55, 23);
-            lblLeadsHeader.TabIndex = 4;
-            lblLeadsHeader.Text = "Leads";
-            lblLeadsHeader.UseMnemonic = false;
-            // 
-            // listLeads
-            // 
-            listLeads.BackColor = Color.FromArgb(245, 247, 251);
-            listLeads.BorderStyle = BorderStyle.None;
-            listLeads.Columns.AddRange(new ColumnHeader[] { colContact, colStage });
-            listLeads.Dock = DockStyle.Fill;
-            listLeads.FullRowSelect = true;
-            listLeads.HeaderStyle = ColumnHeaderStyle.None;
-            listLeads.Location = new Point(0, 146);
-            listLeads.Margin = new Padding(0);
-            listLeads.MultiSelect = false;
-            listLeads.Name = "listLeads";
-            listLeads.Size = new Size(300, 318);
-            listLeads.TabIndex = 5;
-            listLeads.UseCompatibleStateImageBehavior = false;
-            listLeads.View = View.Details;
-            // 
-            // colContact
-            // 
-            colContact.Text = "Contact";
-            colContact.Width = 190;
-            // 
-            // colStage
-            // 
-            colStage.Text = "Stage";
-            colStage.Width = 100;
-            // 
-            // ParcelMapView
-            // 
-            AutoScaleDimensions = new SizeF(8F, 20F);
-            AutoScaleMode = AutoScaleMode.Font;
-            BackColor = Color.White;
-            Controls.Add(layoutMain);
-            Margin = new Padding(3, 4, 3, 4);
-            Name = "ParcelMapView";
-            Size = new Size(1104, 504);
-            layoutMain.ResumeLayout(false);
-            inspector.ResumeLayout(false);
-            detailsLayout.ResumeLayout(false);
-            detailsLayout.PerformLayout();
-            ResumeLayout(false);
-        }
-
-        #endregion
-
-        private TableLayoutPanel layoutMain;
-        private WayPlot.UI.ParcelMapControl mapControl;
-        private WayPlot.UI.RoundedPanel inspector;
-        private Label lblPrompt;
-        private TableLayoutPanel detailsLayout;
-        private Label lblParcelLabel;
-        private Label lblParcelStatus;
-        private TableLayoutPanel facts;
-        private Label lblDescription;
-        private TableLayoutPanel leadHeaderLayout;
-        private Label lblLeadsHeader;
-        private Button btnAttachLead;
-        private ListView listLeads;
-        private ColumnHeader colContact;
-        private ColumnHeader colStage;
+    private void InitializeComponent()
+    {
+        layoutMain = new SplitContainer();
+        mapLayout = new TableLayoutPanel();
+        mapToolbar = new FlowLayoutPanel();
+        mapControl = new UI.LeafletMapControl();
+        btnNewParcel = new Button();
+        btnPlaceMarker = new Button();
+        btnUndo = new Button();
+        btnFinish = new Button();
+        btnCancel = new Button();
+        lblMapHint = new Label();
+        inspector = new UI.RoundedPanel();
+        detailsLayout = new TableLayoutPanel();
+        parcelHeaderLayout = new TableLayoutPanel();
+        facts = new TableLayoutPanel();
+        leadHeaderLayout = new TableLayoutPanel();
+        lblParcelLabel = new Label();
+        lblParcelStatus = new Label();
+        lblDescription = new Label();
+        lblLeadsHeader = new Label();
+        btnClosePanel = new Button();
+        btnAttachLead = new Button();
+        parcelActions = new FlowLayoutPanel();
+        btnEditDetails = new Button();
+        btnEditShape = new Button();
+        btnChangePrice = new Button();
+        btnReassign = new Button();
+        btnArchive = new Button();
+        listLeads = new ListView();
+        colContact = new ColumnHeader();
+        colStage = new ColumnHeader();
+        ((System.ComponentModel.ISupportInitialize)layoutMain).BeginInit();
+        layoutMain.Panel1.SuspendLayout();
+        layoutMain.Panel2.SuspendLayout();
+        layoutMain.SuspendLayout();
+        mapLayout.SuspendLayout();
+        mapToolbar.SuspendLayout();
+        inspector.SuspendLayout();
+        detailsLayout.SuspendLayout();
+        parcelHeaderLayout.SuspendLayout();
+        leadHeaderLayout.SuspendLayout();
+        SuspendLayout();
+        // layoutMain
+        layoutMain.Dock = DockStyle.Fill;
+        layoutMain.FixedPanel = FixedPanel.Panel2;
+        layoutMain.IsSplitterFixed = false;
+        layoutMain.Location = new Point(0, 0);
+        layoutMain.Name = "layoutMain";
+        layoutMain.Orientation = Orientation.Vertical;
+        layoutMain.Panel1MinSize = 420;
+        layoutMain.Panel2MinSize = 300;
+        layoutMain.Size = new Size(1104, 504);
+        layoutMain.SplitterDistance = 742;
+        layoutMain.SplitterWidth = 6;
+        layoutMain.TabIndex = 0;
+        // layoutMain.Panel1
+        layoutMain.Panel1.Controls.Add(mapLayout);
+        // mapLayout
+        mapLayout.ColumnCount = 1;
+        mapLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+        mapLayout.Controls.Add(mapToolbar, 0, 0);
+        mapLayout.Controls.Add(lblMapHint, 0, 1);
+        mapLayout.Controls.Add(mapControl, 0, 2);
+        mapLayout.Dock = DockStyle.Fill;
+        mapLayout.Name = "mapLayout";
+        mapLayout.RowCount = 3;
+        mapLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        mapLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        mapLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+        // mapToolbar
+        mapToolbar.AutoSize = true;
+        mapToolbar.Controls.Add(btnNewParcel);
+        mapToolbar.Controls.Add(btnPlaceMarker);
+        mapToolbar.Controls.Add(btnUndo);
+        mapToolbar.Controls.Add(btnFinish);
+        mapToolbar.Controls.Add(btnCancel);
+        mapToolbar.Dock = DockStyle.Fill;
+        mapToolbar.Name = "mapToolbar";
+        mapToolbar.WrapContents = true;
+        // map toolbar actions
+        btnNewParcel.AutoSize = true;
+        btnNewParcel.Name = "btnNewParcel";
+        btnNewParcel.Text = "New parcel";
+        btnNewParcel.UseVisualStyleBackColor = false;
+        btnPlaceMarker.AutoSize = true;
+        btnPlaceMarker.Name = "btnPlaceMarker";
+        btnPlaceMarker.Text = "Place marker";
+        btnPlaceMarker.UseVisualStyleBackColor = false;
+        btnUndo.AutoSize = true;
+        btnUndo.Name = "btnUndo";
+        btnUndo.Text = "Undo";
+        btnUndo.UseVisualStyleBackColor = false;
+        btnFinish.AutoSize = true;
+        btnFinish.Name = "btnFinish";
+        btnFinish.Text = "Finish";
+        btnFinish.UseVisualStyleBackColor = false;
+        btnCancel.AutoSize = true;
+        btnCancel.Name = "btnCancel";
+        btnCancel.Text = "Cancel";
+        btnCancel.UseVisualStyleBackColor = false;
+        // lblMapHint
+        lblMapHint.AutoSize = true;
+        lblMapHint.Margin = new Padding(8, 0, 8, 4);
+        lblMapHint.Name = "lblMapHint";
+        lblMapHint.Text = "";
+        lblMapHint.UseMnemonic = false;
+        lblMapHint.Visible = false;
+        // layoutMain.Panel2
+        layoutMain.Panel2.Controls.Add(inspector);
+        // mapControl
+        mapControl.Dock = DockStyle.Fill;
+        mapControl.Location = new Point(0, 0);
+        mapControl.Name = "mapControl";
+        mapControl.Size = new Size(742, 504);
+        mapControl.TabIndex = 0;
+        // inspector
+        inspector.BackColor = Color.White;
+        inspector.Dock = DockStyle.Fill;
+        inspector.Location = new Point(0, 0);
+        inspector.Name = "inspector";
+        inspector.Padding = new Padding(12);
+        inspector.Size = new Size(356, 504);
+        inspector.TabIndex = 0;
+        // detailsLayout
+        detailsLayout.ColumnCount = 1;
+        detailsLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+        detailsLayout.Controls.Add(parcelHeaderLayout, 0, 0);
+        detailsLayout.Controls.Add(lblParcelStatus, 0, 1);
+        detailsLayout.Controls.Add(facts, 0, 2);
+        detailsLayout.Controls.Add(lblDescription, 0, 3);
+        detailsLayout.Controls.Add(parcelActions, 0, 4);
+        detailsLayout.Controls.Add(leadHeaderLayout, 0, 5);
+        detailsLayout.Controls.Add(listLeads, 0, 6);
+        detailsLayout.Dock = DockStyle.Fill;
+        detailsLayout.Location = new Point(12, 12);
+        detailsLayout.Name = "detailsLayout";
+        detailsLayout.RowCount = 7;
+        detailsLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        detailsLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        detailsLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        detailsLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        detailsLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        detailsLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        detailsLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+        detailsLayout.Size = new Size(332, 480);
+        detailsLayout.TabIndex = 0;
+        // parcelHeaderLayout
+        parcelHeaderLayout.AutoSize = true;
+        parcelHeaderLayout.ColumnCount = 2;
+        parcelHeaderLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+        parcelHeaderLayout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        parcelHeaderLayout.Controls.Add(lblParcelLabel, 0, 0);
+        parcelHeaderLayout.Controls.Add(btnClosePanel, 1, 0);
+        parcelHeaderLayout.Dock = DockStyle.Fill;
+        parcelHeaderLayout.Location = new Point(3, 3);
+        parcelHeaderLayout.Name = "parcelHeaderLayout";
+        parcelHeaderLayout.RowCount = 1;
+        parcelHeaderLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        parcelHeaderLayout.Size = new Size(326, 35);
+        parcelHeaderLayout.TabIndex = 0;
+        // lblParcelLabel
+        lblParcelLabel.AutoEllipsis = true;
+        lblParcelLabel.Dock = DockStyle.Fill;
+        lblParcelLabel.Font = new Font("Segoe UI", 13F, FontStyle.Bold);
+        lblParcelLabel.Location = new Point(3, 0);
+        lblParcelLabel.Name = "lblParcelLabel";
+        lblParcelLabel.Size = new Size(255, 35);
+        lblParcelLabel.TabIndex = 0;
+        lblParcelLabel.Text = "Parcel";
+        lblParcelLabel.TextAlign = ContentAlignment.MiddleLeft;
+        lblParcelLabel.UseMnemonic = false;
+        // btnClosePanel
+        btnClosePanel.AutoSize = true;
+        btnClosePanel.Location = new Point(264, 3);
+        btnClosePanel.Name = "btnClosePanel";
+        btnClosePanel.Size = new Size(59, 29);
+        btnClosePanel.TabIndex = 1;
+        btnClosePanel.Text = "Close";
+        btnClosePanel.UseVisualStyleBackColor = true;
+        // lblParcelStatus
+        lblParcelStatus.AutoSize = true;
+        lblParcelStatus.Dock = DockStyle.Fill;
+        lblParcelStatus.Location = new Point(3, 41);
+        lblParcelStatus.Margin = new Padding(3, 0, 3, 8);
+        lblParcelStatus.Name = "lblParcelStatus";
+        lblParcelStatus.Size = new Size(326, 20);
+        lblParcelStatus.TabIndex = 1;
+        lblParcelStatus.Text = "Status";
+        // facts
+        facts.AutoSize = true;
+        facts.ColumnCount = 2;
+        facts.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        facts.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+        facts.Dock = DockStyle.Top;
+        facts.Location = new Point(3, 72);
+        facts.Name = "facts";
+        facts.RowCount = 0;
+        facts.Size = new Size(326, 0);
+        facts.TabIndex = 2;
+        // lblDescription
+        lblDescription.AutoSize = true;
+        lblDescription.Dock = DockStyle.Fill;
+        lblDescription.Location = new Point(3, 75);
+        lblDescription.Margin = new Padding(3, 0, 3, 10);
+        lblDescription.MaximumSize = new Size(300, 66);
+        lblDescription.Name = "lblDescription";
+        lblDescription.Size = new Size(300, 20);
+        lblDescription.TabIndex = 3;
+        lblDescription.Text = "Description";
+        // parcelActions
+        parcelActions.AutoSize = true;
+        parcelActions.Dock = DockStyle.Fill;
+        parcelActions.Name = "parcelActions";
+        parcelActions.WrapContents = true;
+        parcelActions.Controls.Add(btnEditDetails);
+        parcelActions.Controls.Add(btnEditShape);
+        parcelActions.Controls.Add(btnChangePrice);
+        parcelActions.Controls.Add(btnReassign);
+        parcelActions.Controls.Add(btnArchive);
+        // inspector parcel actions
+        btnEditDetails.AutoSize = true;
+        btnEditDetails.Name = "btnEditDetails";
+        btnEditDetails.Text = "Edit details";
+        btnEditDetails.UseVisualStyleBackColor = false;
+        btnEditShape.AutoSize = true;
+        btnEditShape.Name = "btnEditShape";
+        btnEditShape.Text = "Edit shape";
+        btnEditShape.UseVisualStyleBackColor = false;
+        btnChangePrice.AutoSize = true;
+        btnChangePrice.Name = "btnChangePrice";
+        btnChangePrice.Text = "Change price";
+        btnChangePrice.UseVisualStyleBackColor = false;
+        btnReassign.AutoSize = true;
+        btnReassign.Name = "btnReassign";
+        btnReassign.Text = "Reassign";
+        btnReassign.UseVisualStyleBackColor = false;
+        btnArchive.AutoSize = true;
+        btnArchive.Name = "btnArchive";
+        btnArchive.Text = "Archive";
+        btnArchive.UseVisualStyleBackColor = false;
+        // leadHeaderLayout
+        leadHeaderLayout.ColumnCount = 2;
+        leadHeaderLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+        leadHeaderLayout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        leadHeaderLayout.Controls.Add(lblLeadsHeader, 0, 0);
+        leadHeaderLayout.Controls.Add(btnAttachLead, 1, 0);
+        leadHeaderLayout.Dock = DockStyle.Fill;
+        leadHeaderLayout.Location = new Point(3, 108);
+        leadHeaderLayout.Name = "leadHeaderLayout";
+        leadHeaderLayout.RowCount = 1;
+        leadHeaderLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        leadHeaderLayout.Size = new Size(326, 36);
+        leadHeaderLayout.TabIndex = 4;
+        // lblLeadsHeader
+        lblLeadsHeader.AutoSize = true;
+        lblLeadsHeader.Dock = DockStyle.Fill;
+        lblLeadsHeader.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
+        lblLeadsHeader.Location = new Point(3, 0);
+        lblLeadsHeader.Name = "lblLeadsHeader";
+        lblLeadsHeader.Size = new Size(226, 36);
+        lblLeadsHeader.TabIndex = 0;
+        lblLeadsHeader.Text = "Leads";
+        lblLeadsHeader.TextAlign = ContentAlignment.MiddleLeft;
+        // btnAttachLead
+        btnAttachLead.AutoSize = true;
+        btnAttachLead.Location = new Point(235, 3);
+        btnAttachLead.Name = "btnAttachLead";
+        btnAttachLead.Size = new Size(88, 30);
+        btnAttachLead.TabIndex = 1;
+        btnAttachLead.Text = "Attach lead";
+        btnAttachLead.UseVisualStyleBackColor = true;
+        // listLeads
+        listLeads.Columns.AddRange(new[] { colContact, colStage });
+        listLeads.Dock = DockStyle.Fill;
+        listLeads.FullRowSelect = true;
+        listLeads.HideSelection = false;
+        listLeads.Location = new Point(3, 150);
+        listLeads.MultiSelect = false;
+        listLeads.Name = "listLeads";
+        listLeads.Size = new Size(326, 327);
+        listLeads.TabIndex = 5;
+        listLeads.UseCompatibleStateImageBehavior = false;
+        listLeads.View = View.Details;
+        // colContact
+        colContact.Text = "Contact";
+        colContact.Width = 210;
+        // colStage
+        colStage.Text = "Stage";
+        colStage.Width = 100;
+        // inspector.Controls
+        inspector.Controls.Add(detailsLayout);
+        // ParcelMapView
+        AutoScaleDimensions = new SizeF(96F, 96F);
+        AutoScaleMode = AutoScaleMode.Dpi;
+        Controls.Add(layoutMain);
+        Name = "ParcelMapView";
+        Size = new Size(1104, 504);
+        layoutMain.Panel1.ResumeLayout(false);
+        layoutMain.Panel2.ResumeLayout(false);
+        ((System.ComponentModel.ISupportInitialize)layoutMain).EndInit();
+        layoutMain.ResumeLayout(false);
+        mapLayout.ResumeLayout(false);
+        mapLayout.PerformLayout();
+        mapToolbar.ResumeLayout(false);
+        mapToolbar.PerformLayout();
+        inspector.ResumeLayout(false);
+        detailsLayout.ResumeLayout(false);
+        detailsLayout.PerformLayout();
+        parcelHeaderLayout.ResumeLayout(false);
+        parcelHeaderLayout.PerformLayout();
+        leadHeaderLayout.ResumeLayout(false);
+        leadHeaderLayout.PerformLayout();
+        ResumeLayout(false);
     }
 }

@@ -69,3 +69,64 @@
 - Attempt to save a Deal whose `ContactId` or `ParcelId` differs from its Lead and verify the composite FK rejects it.
 - Verify actor columns accept null where currently nullable, but reject non-null IDs that do not exist in `Staffs` after provisioning.
 - Verify indexes exist for lead assignment/parcel lookup, parcel assignment, commission recipient, contact assignment, deal agent lookup, and the composite lead/deal paths.
+
+## Run E — agent scoping and service-level authorization
+
+### Tenant A: ana.a, ben.a, and admin.a
+
+- Sign in as `ana.a`. Verify Contacts, Leads, Interactions, lead search, lead files, and each parcel's map lead list contain only Ana's assigned records. Contacts assigned to Ana must appear, as must a contact that is unassigned but has a lead assigned to Ana. Contacts and leads assigned only to Ben, and unassigned contacts/leads, must not appear.
+- Sign in as `ben.a`. Verify the same screens show Ben's records only, not Ana's. Directly attempting to move Ana's lead or log an interaction on it must be refused with an ownership message and must not write a stage history or interaction.
+- As `admin.a`, verify all contacts, leads, interactions, lead files, and each parcel's leads are visible, including unassigned records. Verify the Admin can capture contacts, attach leads, move stages (except Closed, which remains deal confirmation), log interactions, and create parcels/owners.
+- As either Agent, capture or import a contact whose phone/email belongs to a contact assigned to the other Agent. Verify a `DuplicateInquiry` is still written, while the visible result says only that a contact already exists and is assigned to another agent; it must not include the other agent's name, the existing contact name, phone, email, parcel, or lead details.
+- On the parcel map as `ana.a` and `ben.a`, verify all parcels remain visible but the selected parcel shows only that Agent's own leads. As `admin.a`, verify the same parcel shows every lead.
+
+### Tenant C: Branch Manager
+
+- Sign in as a Branch Manager with `Staff.BranchId` set. Verify Contacts, Leads, Interactions, lead files, and parcel-map lead lists are limited to that branch; parcels themselves remain visible tenant-wide. Verify New contact, Import, Attach lead, Move stage, and Log interaction actions are hidden.
+- Call the mutation services directly as that Branch Manager and verify contact capture/import, lead attachment/stage change, interaction logging, parcel creation, and owner creation all refuse with a role-specific read-only message.
+- Temporarily use a Branch Manager staff record with `BranchId = null` in a controlled test database. Verify Contacts, Leads, Interactions, lead files, parcels, and owner lists refuse the request with a clear "no assigned branch" message rather than returning tenant-wide data. Verify all mutation actions remain unavailable.
+
+### Super Admin
+
+- Sign in as Super Admin. Verify tenant data tabs are absent and direct service calls for contacts, leads, interactions, parcels, and imports are refused with a Super Admin message.
+- Directly call contact capture/import, lead attachment/stage change, interaction logging, parcel creation, and owner creation as Super Admin; verify every mutation is refused with a Super Admin message.
+
+## Run C1 — Leaflet parcel map
+
+- Open the Parcel map with seeded parcels in each tenant. Verify polygons and latitude/longitude-only parcels appear at the expected Philippines locations and use green Available, amber Reserved, red Sold, and blue Leased styling.
+- Click a parcel and verify it is highlighted and the inspector shows its label, status, price, reservation fee, area, price per sqm, zoning, utilities, road access, tax declaration and title numbers, owner details, and linked leads. Verify Attach lead remains available only to permitted roles.
+- Click the empty map and verify the inspector closes and the selection highlight clears. Reopen a parcel and use Close; verify the same behavior.
+- Drag the splitter and resize the window. Verify the map redraws to the available space. Close and reopen WayPlot, select a parcel, and verify the inspector width is restored.
+- Block the configured tile server while leaving the app running. Verify parcel geometry remains visible on a plain background and the unobtrusive offline note appears.
+- Sign in as an Agent and verify the parcel map displays only the leads permitted by Run E for each parcel; verify parcels remain visible tenant-wide.
+- Use a parcel label containing `<` and verify it appears as literal text in the map label and inspector.
+- Run without the Microsoft Edge WebView2 Runtime in a controlled environment and verify the map area explains what to install while other app screens remain usable.
+
+## Run C2 — parcel drawing, editing, and permissions
+
+### Agent `ana.a`
+
+- Draw a polygon lot and place a marker lot. Verify both appear at the clicked locations, the polygon area is prefilled and editable, and the marker's area can be entered.
+- Verify Enter, double-click, Esc, and Backspace behave as indicated while drawing. Verify the Finish, Undo, and Cancel buttons work as keyboard fallbacks.
+- Click an existing parcel during polygon drawing and verify it does not become selected.
+- Edit Ana's own lot details and shape. Verify her price and reservation fee are read-only when editing.
+- Verify Ana cannot edit a lot assigned to another Agent, change its price, reassign it, or archive it; unavailable edit actions should be muted with a tooltip reason.
+- Try a duplicate parcel label with different letter casing and verify it is refused.
+
+### Tenant Admin `admin.a`
+
+- Edit any parcel's details and shape, change its price and reservation fee, and reassign it to `ben.a`. Verify the existing leads are not reassigned.
+- Archive a parcel with no blocking deals or leads. Verify it disappears from the map and the Attach-lead parcel picker, while its label remains reserved.
+- Try to archive a parcel with a deal not Cancelled or Defaulted, then one with a lead not Lost. Verify each attempt is refused and names the blocking status.
+- Verify a duplicate label is refused even when the matching parcel is archived.
+
+### Agent `ben.a`
+
+- Verify Ben can edit only parcels assigned to him and cannot change price, reassign, or archive.
+- Verify parcel details and shapes remain available only for parcels he owns; Leads on other Agents' parcels are unchanged.
+
+### All roles and Tenant C
+
+- Verify no parcel dialog or map message can set Status by hand; new parcels begin Available.
+- Use a parcel label containing `<` and verify it displays as text in the map and inspector.
+- In Tenant C, sign in as the Branch Manager. Verify all parcel mutation buttons are hidden, direct mutation attempts are refused, and no draw mode can be started.

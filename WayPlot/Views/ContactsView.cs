@@ -136,14 +136,23 @@ public partial class ContactsView : UserControl, IContactsView
         if (_presenter is null)
         {
             ButtonStyle.ApplyAvailability(
-                [new ButtonAvailability(btnImport, true, true, null, Primary: false)],
+            [
+                new ButtonAvailability(btnNew, false, false, null, Primary: true),
+                new ButtonAvailability(btnImport, false, false, null, Primary: false)
+            ],
                 actionToolTip);
             return;
         }
 
-        var canImport = _presenter?.CanImport == true;
+        var canCapture = _presenter.CanCapture;
+        var canImport = _presenter.CanImport;
         ButtonStyle.ApplyAvailability(
-            [new ButtonAvailability(btnImport, canImport, canImport, null, Primary: false)],
+            [
+                new ButtonAvailability(btnNew, canCapture, canCapture,
+                    canCapture ? null : _presenter.CaptureUnavailableReason, Primary: true),
+                new ButtonAvailability(btnImport, canImport, canImport,
+                    canImport ? null : "Only Agents and Tenant Admins can import contacts.", Primary: false)
+            ],
             actionToolTip);
     }
 

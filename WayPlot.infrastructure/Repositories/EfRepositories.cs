@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using WayPlot.domain.Common;
 using WayPlot.domain.Entities;
 using WayPlot.domain.Repositories;
+using WayPlot.domain.Services.DataCollection;
 using WayPlot.infrastructure.Data;
 
 namespace WayPlot.infrastructure.Repositories;
@@ -26,19 +27,26 @@ internal sealed class ParcelRepository(TenantDbContext db) : IParcelRepository
     public async Task<IReadOnlyList<Parcel>> ListAsync() =>
         await db.Parcels.AsNoTracking().Include(p => p.Owner).OrderBy(p => p.Label).ToListAsync();
 
-    public Task<bool> LabelExistsAsync(string label) =>
-        db.Parcels.AnyAsync(p => p.Label == label);
+    public Task<bool> LabelExistsAsync(string label, Guid? exceptParcelId = null)
+    {
+        var normalizedLabel = label.Trim().ToUpper();
+        var query = db.Parcels.IgnoreQueryFilters()
+            .Where(parcel => parcel.Label.Trim().ToUpper() == normalizedLabel);
+        if (exceptParcelId is { } parcelId)
+            query = query.Where(parcel => parcel.Id != parcelId);
+        return query.AnyAsync();
+    }
 
     public void Add(Parcel parcel) => db.Parcels.Add(parcel);
 }
 
 internal sealed class ContactRepository(TenantDbContext db) : IContactRepository
 {
-    public Task<Contact?> GetAsync(Guid id) =>
-        db.Contacts.FirstOrDefaultAsync(c => c.Id == id);
+    public Task<Contact?> GetAsync(Guid id, TenantDataScope? scope = null) =>
+        ApplyScope(db.Contacts, scope).FirstOrDefaultAsync(c => c.Id == id);
 
-    public async Task<IReadOnlyList<Contact>> ListReferralContactsAsync() =>
-        await db.Contacts.AsNoTracking()
+    public async Task<IReadOnlyList<Contact>> ListReferralContactsAsync(TenantDataScope? scope = null) =>
+        await ApplyScope(db.Contacts.AsNoTracking(), scope)
             .OrderBy(c => c.FullName)
             .Take(500)
             .ToListAsync();
@@ -60,23 +68,24 @@ internal sealed class ContactRepository(TenantDbContext db) : IContactRepository
 
     public async Task<IReadOnlyList<Contact>> FindMatchesAsync(
         IReadOnlyCollection<string> phoneNumbers,
-        IReadOnlyCollection<string> emails)
+        IReadOnlyCollection<string> emails,
+        TenantDataScope? scope = null)
     {
         var phones = phoneNumbers.Distinct().ToArray();
         var addresses = emails.Distinct().ToArray();
         if (phones.Length == 0 && addresses.Length == 0)
             return Array.Empty<Contact>();
 
-        return await db.Contacts.AsNoTracking()
+        return await ApplyScope(db.Contacts.AsNoTracking(), scope)
             .Where(c =>
                 (c.PhoneNormalized != null && phones.Contains(c.PhoneNormalized))
                 || (c.Email != null && addresses.Contains(c.Email)))
             .ToListAsync();
     }
 
-    public async Task<IReadOnlyList<Contact>> SearchAsync(string? text)
+    public async Task<IReadOnlyList<Contact>> SearchAsync(string? text, TenantDataScope? scope = null)
     {
-        var query = db.Contacts.AsNoTracking();
+        var query = ApplyScope(db.Contacts.AsNoTracking(), scope);
 
         var term = text?.Trim();
         if (!string.IsNullOrEmpty(term))
@@ -97,6 +106,18 @@ internal sealed class ContactRepository(TenantDbContext db) : IContactRepository
     }
 
     public void Add(Contact contact) => db.Contacts.Add(contact);
+
+    private IQueryable<Contact> ApplyScope(IQueryable<Contact> query, TenantDataScope? scope) =>
+        scope?.Kind switch
+        {
+            TenantDataScopeKind.Agent when scope.Value.StaffId is { } staffId => query.Where(contact =>
+                contact.AssignedStaffId == staffId
+                || db.Leads.Any(lead => lead.ContactId == contact.Id && lead.AssignedStaffId == staffId)),
+            TenantDataScopeKind.Branch when scope.Value.BranchId is { } branchId => query.Where(contact =>
+                contact.BranchId == branchId
+                || db.Leads.Any(lead => lead.ContactId == contact.Id && lead.BranchId == branchId)),
+            _ => query
+        };
 }
 
 internal sealed class StaffRepository(TenantDbContext db) : IStaffRepository
@@ -232,18 +253,23 @@ internal sealed class DuplicateInquiryRepository(TenantDbContext db) : IDuplicat
 
 internal sealed class LeadRepository(TenantDbContext db) : ILeadRepository
 {
-    public Task<Lead?> GetAsync(Guid id) =>
-        db.Leads.Include(l => l.Contact).Include(l => l.Parcel).FirstOrDefaultAsync(l => l.Id == id);
-
-    public Task<Lead?> GetForDisplayAsync(Guid id) =>
-        db.Leads.AsNoTracking().Include(l => l.Contact).Include(l => l.Parcel)
+    public Task<Lead?> GetAsync(Guid id, TenantDataScope? scope = null) =>
+        ApplyScope(db.Leads.Include(l => l.Contact).Include(l => l.Parcel), scope)
             .FirstOrDefaultAsync(l => l.Id == id);
 
-    public async Task<IReadOnlyList<Lead>> ListAsync(LeadStage? stage, string? search, Guid? assignedStaffId = null)
+    public Task<Lead?> GetForDisplayAsync(Guid id, TenantDataScope? scope = null) =>
+        ApplyScope(db.Leads.AsNoTracking().Include(l => l.Contact).Include(l => l.Parcel), scope)
+            .FirstOrDefaultAsync(l => l.Id == id);
+
+    public async Task<IReadOnlyList<Lead>> ListAsync(
+        LeadStage? stage,
+        string? search,
+        Guid? assignedStaffId = null,
+        TenantDataScope? scope = null)
     {
-        IQueryable<Lead> query = db.Leads.AsNoTracking()
+        IQueryable<Lead> query = ApplyScope(db.Leads.AsNoTracking()
             .Include(l => l.Contact)
-            .Include(l => l.Parcel);
+            .Include(l => l.Parcel), scope);
 
         if (assignedStaffId is { } staffId)
             query = query.Where(l => l.AssignedStaffId == staffId);
@@ -262,11 +288,17 @@ internal sealed class LeadRepository(TenantDbContext db) : ILeadRepository
             .ToListAsync();
     }
 
-    public async Task<IReadOnlyList<Lead>> ListByParcelAsync(Guid parcelId) =>
-        await db.Leads.AsNoTracking()
+    public async Task<IReadOnlyList<Lead>> ListByParcelAsync(Guid parcelId, TenantDataScope? scope = null) =>
+        await ApplyScope(db.Leads.AsNoTracking()
             .Include(l => l.Contact).Include(l => l.Parcel)
-            .Where(l => l.ParcelId == parcelId)
+            .Where(l => l.ParcelId == parcelId), scope)
             .OrderByDescending(l => l.LastActivityAtUtc)
+            .ToListAsync();
+
+    public async Task<IReadOnlyList<LeadStage>> ListStagesByParcelAsync(Guid parcelId) =>
+        await db.Leads.IgnoreQueryFilters()
+            .Where(lead => lead.ParcelId == parcelId)
+            .Select(lead => lead.Stage)
             .ToListAsync();
 
     public Task<Lead?> GetLatestActiveForContactAsync(Guid contactId) =>
@@ -282,15 +314,28 @@ internal sealed class LeadRepository(TenantDbContext db) : ILeadRepository
         db.Leads.AnyAsync(l => l.ParcelId == parcelId && l.Id != exceptLeadId && l.Stage == LeadStage.Negotiation);
 
     public void Add(Lead lead) => db.Leads.Add(lead);
+
+    private static IQueryable<Lead> ApplyScope(IQueryable<Lead> query, TenantDataScope? scope) =>
+        scope?.Kind switch
+        {
+            TenantDataScopeKind.Agent when scope.Value.StaffId is { } staffId =>
+                query.Where(lead => lead.AssignedStaffId == staffId),
+            TenantDataScopeKind.Branch when scope.Value.BranchId is { } branchId =>
+                query.Where(lead => lead.BranchId == branchId),
+            _ => query
+        };
 }
 
 internal sealed class InteractionRepository(TenantDbContext db) : IInteractionRepository
 {
-    public async Task<IReadOnlyList<Interaction>> ListAsync(Guid? leadId, InteractionType? type)
+    public async Task<IReadOnlyList<Interaction>> ListAsync(
+        Guid? leadId,
+        InteractionType? type,
+        TenantDataScope? scope = null)
     {
-        IQueryable<Interaction> query = db.Interactions.AsNoTracking()
+        IQueryable<Interaction> query = ApplyScope(db.Interactions.AsNoTracking()
             .Include(i => i.Lead).ThenInclude(l => l.Contact)
-            .Include(i => i.Lead).ThenInclude(l => l.Parcel);
+            .Include(i => i.Lead).ThenInclude(l => l.Parcel), scope);
 
         if (leadId is { } selectedLeadId)
             query = query.Where(i => i.LeadId == selectedLeadId);
@@ -304,14 +349,26 @@ internal sealed class InteractionRepository(TenantDbContext db) : IInteractionRe
             .ToListAsync();
     }
 
-    public async Task<IReadOnlyList<Interaction>> ListByLeadAsync(Guid leadId) =>
-        await db.Interactions.AsNoTracking()
-            .Where(i => i.LeadId == leadId)
+    public async Task<IReadOnlyList<Interaction>> ListByLeadAsync(Guid leadId, TenantDataScope? scope = null) =>
+        await ApplyScope(db.Interactions.AsNoTracking()
+            .Include(i => i.Lead).ThenInclude(l => l.Contact)
+            .Include(i => i.Lead).ThenInclude(l => l.Parcel)
+            .Where(i => i.LeadId == leadId), scope)
             .OrderByDescending(i => i.OccurredAtUtc)
             .ThenByDescending(i => i.Id)
             .ToListAsync();
 
     public void Add(Interaction interaction) => db.Interactions.Add(interaction);
+
+    private static IQueryable<Interaction> ApplyScope(IQueryable<Interaction> query, TenantDataScope? scope) =>
+        scope?.Kind switch
+        {
+            TenantDataScopeKind.Agent when scope.Value.StaffId is { } staffId =>
+                query.Where(interaction => interaction.Lead.AssignedStaffId == staffId),
+            TenantDataScopeKind.Branch when scope.Value.BranchId is { } branchId =>
+                query.Where(interaction => interaction.Lead.BranchId == branchId),
+            _ => query
+        };
 }
 
 internal sealed class StageHistoryRepository(TenantDbContext db) : IStageHistoryRepository
@@ -367,6 +424,12 @@ internal sealed class DealRepository(TenantDbContext db) : IDealRepository
 
     public Task<bool> ActiveForParcelExistsAsync(Guid parcelId) =>
         db.Deals.AnyAsync(d => d.ParcelId == parcelId && d.IsActive);
+
+    public async Task<IReadOnlyList<DealStatus>> ListStatusesByParcelAsync(Guid parcelId) =>
+        await db.Deals.IgnoreQueryFilters()
+            .Where(deal => deal.ParcelId == parcelId)
+            .Select(deal => deal.Status)
+            .ToListAsync();
 
     public void Add(Deal deal) => db.Deals.Add(deal);
 }

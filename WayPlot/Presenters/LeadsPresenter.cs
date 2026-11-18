@@ -12,9 +12,18 @@ public interface ILeadsView
 }
 
 /// <summary>Loads the filtered lead list and delegates lead-file operations to LeadService.</summary>
-public sealed class LeadsPresenter(ILeadsView view, LeadService leads, InteractionService interactions)
+public sealed class LeadsPresenter(
+    ILeadsView view,
+    LeadService leads,
+    InteractionService interactions,
+    TenantAccessPolicy access)
 {
     private int _latest;
+
+    public bool CanReadLeads => access.GetDataReadScope("leads").Ok;
+    public string ReadUnavailableReason => access.GetDataReadScope("leads").Message;
+    public bool CanMutateLeads => access.CanMutateData;
+    public string MutationUnavailableReason => access.MutationUnavailableReason;
 
     public async Task LoadAsync(LeadStage? stage, string? search)
     {

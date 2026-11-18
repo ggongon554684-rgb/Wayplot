@@ -1,6 +1,7 @@
 ﻿using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using WayPlot.domain.Common;
+using WayPlot.domain.Entities;
 using WayPlot.domain.Repositories;
 using WayPlot.infrastructure.Data;
 using WayPlot.infrastructure.Tenancy;
@@ -49,6 +50,18 @@ internal sealed class TenantUnitOfWork : ITenantUnitOfWork
         try
         {
             return await _db.SaveChangesAsync();
+        }
+        catch (DbUpdateConcurrencyException ex) when (ex.Entries.Any(entry => entry.Entity is Parcel))
+        {
+            throw new ParcelConcurrencyConflictException(ex);
+        }
+        catch (DbUpdateException ex) when (
+            ex.Entries.Any(entry => entry.Entity is Parcel)
+            && ex.InnerException is SqlException sql
+            && sql.Number is 2601 or 2627
+            && sql.Message.Contains("UX_Parcel_Label", StringComparison.Ordinal))
+        {
+            throw new ParcelLabelConflictException(ex);
         }
         catch (DbUpdateException ex) when (
             ex.InnerException is SqlException sql

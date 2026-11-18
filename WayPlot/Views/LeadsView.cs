@@ -10,6 +10,7 @@ namespace WayPlot.Views;
 public partial class LeadsView : UserControl, ILeadsView
 {
     private LeadsPresenter? _presenter;
+    private readonly ToolTip _actionToolTip = new();
 
     public LeadsView()
     {
@@ -33,8 +34,10 @@ public partial class LeadsView : UserControl, ILeadsView
             await LoadAsync();
         };
         btnOpenLeadFile.Click += async (_, _) => await OpenLeadFileAsync();
+        listLeads.SelectedIndexChanged += (_, _) => UpdateOpenAction();
         listLeads.ItemActivate += async (_, _) => await OpenLeadFileAsync();
         listLeads.Resize += (_, _) => FitColumns();
+        UpdateOpenAction();
         FitColumns();
     }
 
@@ -42,12 +45,17 @@ public partial class LeadsView : UserControl, ILeadsView
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public LeadsPresenter? Presenter
     {
-        set => _presenter = value;
+        set
+        {
+            _presenter = value;
+            UpdateOpenAction();
+        }
     }
 
     protected override async void OnLoad(EventArgs e)
     {
         base.OnLoad(e);
+        UpdateOpenAction();
         if (_presenter is not null && !DesignMode)
             await LoadAsync();
     }
@@ -76,6 +84,20 @@ public partial class LeadsView : UserControl, ILeadsView
         await _presenter.LoadAsync(SelectedStage, txtSearch.Text);
     }
 
+    private void UpdateOpenAction()
+    {
+        var visible = _presenter?.CanReadLeads == true;
+        var selected = listLeads.SelectedItems.Count > 0;
+        var reason = _presenter is null
+            ? null
+            : !_presenter.CanReadLeads
+                ? _presenter.ReadUnavailableReason
+                : selected ? null : "Select a lead first.";
+        ButtonStyle.ApplyAvailability(
+            [new ButtonAvailability(btnOpenLeadFile, visible, selected, reason, Primary: true)],
+            _actionToolTip);
+    }
+
     private async Task OpenLeadFileAsync()
     {
         if (_presenter is null) return;
@@ -101,6 +123,10 @@ public partial class LeadsView : UserControl, ILeadsView
             LeadSearchHandler = _presenter.SearchLeadsAsync,
             InteractionSaveHandler = _presenter.LogInteractionAsync
         };
+        dialog.ConfigureMutationActions(
+            _presenter.CanMutateLeads,
+            _presenter.CanMutateLeads,
+            _presenter.MutationUnavailableReason);
         dialog.ShowDialog(FindForm());
 
         if (!IsDisposed)

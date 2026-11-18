@@ -1,6 +1,8 @@
 ﻿using System.ComponentModel;
 using System.Globalization;
+using WayPlot.domain.Common;
 using WayPlot.domain.Contracts;
+using WayPlot.domain.Services.DataCollection;
 using WayPlot.Presenters;
 using WayPlot.UI;
 
@@ -13,27 +15,73 @@ public partial class ParcelMapView : UserControl, IParcelMapView
     private static readonly string[] FactCaptions =
     [
         "Price", "Per sqm", "Area", "Zoning", "Reservation",
-        "Owner", "Tax declaration", "Title no.", "Utilities", "Road access"
+        "Owner", "Owner phone", "Owner email", "Listing agreement",
+        "Tax declaration", "Title no.", "Utilities", "Road access"
     ];
 
     private readonly List<Label> _factValues = [];
+    private IParcelMapControl _map = null!;
     private ParcelMapPresenter? _presenter;
+    private ParcelDto? _currentParcel;
     private Guid? _currentParcelId;
+    private readonly ToolTip _actionToolTip = new();
+    private int _preferredInspectorWidth = 356;
+    private bool _settingsLoaded;
+    private bool _settingsWarningShown;
+    private string _mapMode = "none";
+    private int _modeVertexCount;
 
     public ParcelMapView()
     {
         InitializeComponent();
+        _map = mapControl;
         BuildFacts();
         ApplyTheme();
+        layoutMain.Panel2Collapsed = true;
 
         listLeads.Resize += (_, _) => FitLeadColumns();
         listLeads.ItemActivate += async (_, _) => await OpenLeadFileAsync();
         btnAttachLead.Click += (_, _) => AttachLead();
-        mapControl.SelectionChanged += async (_, _) =>
+        btnNewParcel.Click += (_, _) => StartDraw("polygon");
+        btnPlaceMarker.Click += (_, _) => StartDraw("marker");
+        btnUndo.Click += (_, _) => _map.UndoVertex();
+        btnFinish.Click += (_, _) => _map.FinishMode();
+        btnCancel.Click += (_, _) => _map.CancelMode();
+        btnEditDetails.Click += async (_, _) => await EditDetailsAsync();
+        btnEditShape.Click += (_, _) => StartShapeEdit();
+        btnChangePrice.Click += async (_, _) => await ChangePriceAsync();
+        btnReassign.Click += async (_, _) => await ReassignAsync();
+        btnArchive.Click += async (_, _) => await ArchiveAsync();
+        btnClosePanel.Click += async (_, _) =>
         {
             if (_presenter is not null)
-                await _presenter.SelectAsync(mapControl.SelectedId);
+                await _presenter.SelectAsync(null);
         };
+        _map.ParcelClicked += async (_, args) =>
+        {
+            if (_presenter is not null)
+                await _presenter.SelectAsync(args.ParcelId);
+        };
+        _map.MapBackgroundClicked += async (_, _) =>
+        {
+            if (_presenter is not null)
+                await _presenter.SelectAsync(null);
+        };
+        _map.DrawComplete += async (_, args) => await HandleDrawCompleteAsync(args);
+        _map.GeometryEditComplete += async (_, args) => await HandleGeometryEditCompleteAsync(args);
+        _map.ModeStateChanged += (_, args) =>
+        {
+            _mapMode = args.Mode;
+            _modeVertexCount = args.VertexCount;
+            UpdateMapActions();
+        };
+        _map.ModeCancelled += (_, _) =>
+        {
+            _mapMode = "none";
+            _modeVertexCount = 0;
+            UpdateMapActions();
+        };
+        layoutMain.SplitterMoved += (_, _) => SaveInspectorWidth();
 
         ClearParcel();
     }
@@ -43,27 +91,48 @@ public partial class ParcelMapView : UserControl, IParcelMapView
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public ParcelMapPresenter? Presenter
     {
-        set => _presenter = value;
+        set
+        {
+            _presenter = value;
+            UpdateAttachAction();
+            UpdateParcelActions();
+            UpdateMapActions();
+        }
     }
 
     protected override async void OnLoad(EventArgs e)
     {
         base.OnLoad(e);
+        LoadInspectorWidth();
+        UpdateAttachAction();
+        UpdateParcelActions();
+        UpdateMapActions();
         if (_presenter is not null && !DesignMode)
             await _presenter.LoadAsync();
     }
+
+    public void ConfigureMapTiles(MapTileOptions options) => _map.Configure(options);
 
     private void ApplyTheme()
     {
         BackColor = Theme.Page;
         layoutMain.BackColor = Theme.Page;
-        lblPrompt.ForeColor = Theme.Muted;
         lblParcelLabel.ForeColor = Theme.Navy;
         lblDescription.ForeColor = Theme.Muted;
         lblLeadsHeader.ForeColor = Theme.Navy;
         listLeads.ForeColor = Theme.Text;
         listLeads.BackColor = Theme.Surface;
         ButtonStyle.Apply(btnAttachLead, primary: false);
+        ButtonStyle.Apply(btnNewParcel, primary: true);
+        ButtonStyle.Apply(btnPlaceMarker, primary: false);
+        ButtonStyle.Apply(btnUndo, primary: false);
+        ButtonStyle.Apply(btnFinish, primary: true);
+        ButtonStyle.Apply(btnCancel, primary: false);
+        ButtonStyle.Apply(btnEditDetails, primary: false);
+        ButtonStyle.Apply(btnEditShape, primary: false);
+        ButtonStyle.Apply(btnChangePrice, primary: false);
+        ButtonStyle.Apply(btnReassign, primary: false);
+        ButtonStyle.Apply(btnArchive, primary: false);
     }
 
     private void BuildFacts()
@@ -113,14 +182,14 @@ public partial class ParcelMapView : UserControl, IParcelMapView
     public void ShowMessage(string? text)
     {
         if (IsDisposed) return;
-        mapControl.SetMessage(text);
+        _map.SetMessage(text);
     }
 
-    public void ShowShapes(IReadOnlyList<MapShape> shapes, int unplotted)
+    public void ShowParcels(string featureCollectionJson, int featureCount, int unplotted)
     {
         if (IsDisposed) return;
-        mapControl.SetShapes(shapes);
-        mapControl.SetNote(unplotted > 0
+        _map.LoadParcels(featureCollectionJson);
+        _map.SetNote(unplotted > 0
             ? $"{unplotted} parcel{(unplotted == 1 ? "" : "s")} not shown (no map position)."
             : null);
     }
@@ -130,8 +199,13 @@ public partial class ParcelMapView : UserControl, IParcelMapView
         if (IsDisposed) return;
 
         _currentParcelId = parcel.Id;
-        lblPrompt.Visible = false;
+        _currentParcel = parcel;
+        var wasCollapsed = layoutMain.Panel2Collapsed;
+        layoutMain.Panel2Collapsed = false;
+        if (wasCollapsed)
+            ApplyPreferredInspectorWidth();
         detailsLayout.Visible = true;
+        _map.SelectParcel(parcel.Id);
 
         lblParcelLabel.Text = parcel.Label;
         lblParcelStatus.Text = "● " + parcel.Status;
@@ -143,12 +217,17 @@ public partial class ParcelMapView : UserControl, IParcelMapView
         SetFact(3, parcel.Zoning);
         SetFact(4, $"{Peso(parcel.ReservationFee)} ({parcel.ReservationPercent.ToString("0.##", CultureInfo.InvariantCulture)}%)");
         SetFact(5, parcel.OwnerName);
-        SetFact(6, parcel.TaxDeclarationNo);
-        SetFact(7, parcel.TitleNo);
-        SetFact(8, parcel.Utilities);
-        SetFact(9, parcel.RoadAccess);
+        SetFact(6, parcel.OwnerPhone);
+        SetFact(7, parcel.OwnerEmail);
+        SetFact(8, parcel.OwnerListingAgreementOnFile ? "On file" : "Not on file");
+        SetFact(9, parcel.TaxDeclarationNo);
+        SetFact(10, parcel.TitleNo);
+        SetFact(11, parcel.Utilities);
+        SetFact(12, parcel.RoadAccess);
 
         lblDescription.Text = string.IsNullOrWhiteSpace(parcel.Description) ? "No description." : parcel.Description;
+        UpdateAttachAction();
+        UpdateParcelActions();
 
         listLeads.BeginUpdate();
         listLeads.Items.Clear();
@@ -181,9 +260,14 @@ public partial class ParcelMapView : UserControl, IParcelMapView
     {
         if (IsDisposed) return;
         _currentParcelId = null;
-        detailsLayout.Visible = false;
-        lblPrompt.Visible = true;
+        _currentParcel = null;
+        _map.SelectParcel(null);
+        UpdateAttachAction();
+        UpdateParcelActions();
+        layoutMain.Panel2Collapsed = true;
     }
+
+    public void FocusParcel(Guid parcelId) => _map.FitParcel(parcelId);
 
     private void AttachLead()
     {
@@ -195,6 +279,357 @@ public partial class ParcelMapView : UserControl, IParcelMapView
             SaveHandler = contactId => _presenter.AttachLeadAsync(contactId, parcelId)
         };
         dialog.ShowDialog(FindForm());
+    }
+
+    private void UpdateAttachAction()
+    {
+        var visible = _presenter?.CanShowAttachLead == true;
+        var canAttach = _presenter?.CanAttachLeads == true;
+        ButtonStyle.ApplyAvailability(
+            [new ButtonAvailability(btnAttachLead, visible, canAttach,
+                canAttach ? null : _presenter?.AttachUnavailableReason, Primary: false)],
+            _actionToolTip);
+    }
+
+    private void UpdateParcelActions()
+    {
+        var selected = _currentParcelId is not null && _currentParcel is not null;
+        var showEdit = selected && _presenter?.CanShowParcelActions == true;
+        var editPermission = showEdit
+            ? _presenter!.GetEditPermission(_currentParcelId)
+            : RuleResult.Fail("Select a parcel first.");
+        var shapePermission = showEdit
+            ? _presenter!.GetShapeEditPermission(_currentParcelId)
+            : RuleResult.Fail("Select a parcel first.");
+        var showAdmin = selected && _presenter?.CanShowAdminParcelActions == true;
+
+        ButtonStyle.ApplyAvailability(
+        [
+            new ButtonAvailability(btnEditDetails, showEdit, editPermission.Ok,
+                editPermission.Ok ? null : editPermission.Message, Primary: false),
+            new ButtonAvailability(btnEditShape, showEdit, shapePermission.Ok,
+                shapePermission.Ok ? null : shapePermission.Message, Primary: false),
+            new ButtonAvailability(btnChangePrice, showAdmin, showAdmin,
+                showAdmin ? null : "Only the Tenant Admin can change parcel prices.", Primary: false),
+            new ButtonAvailability(btnReassign, showAdmin, showAdmin,
+                showAdmin ? null : "Only the Tenant Admin can reassign parcels.", Primary: false),
+            new ButtonAvailability(btnArchive, showAdmin, showAdmin,
+                showAdmin ? null : "Only the Tenant Admin can archive parcels.", Primary: false)
+        ], _actionToolTip);
+    }
+
+    private void UpdateMapActions()
+    {
+        var canPlot = _presenter?.CanPlotParcel == true;
+        var active = _mapMode != "none";
+        var enabledReason = active ? "Finish or cancel the current map mode first." : null;
+        var polygonMode = _mapMode == "polygon";
+        var canFinish = active && (_mapMode != "polygon" || _modeVertexCount >= 3);
+        var finishReason = _mapMode == "polygon" && _modeVertexCount < 3
+            ? "Add at least 3 boundary points before finishing."
+            : null;
+        var undoReason = polygonMode
+            ? "Add a point before undoing."
+            : "Undo is available only while drawing a polygon.";
+
+        ButtonStyle.ApplyAvailability(
+        [
+            new ButtonAvailability(btnNewParcel, canPlot, canPlot && !active,
+                enabledReason ?? _presenter?.PlotPermission.Message, Primary: true),
+            new ButtonAvailability(btnPlaceMarker, canPlot, canPlot && !active,
+                enabledReason ?? _presenter?.PlotPermission.Message, Primary: false),
+            new ButtonAvailability(btnUndo, canPlot && active, polygonMode && _modeVertexCount > 0,
+                undoReason, Primary: false),
+            new ButtonAvailability(btnFinish, canPlot && active, canFinish,
+                finishReason ?? "Finish is available during a map mode.", Primary: true),
+            new ButtonAvailability(btnCancel, canPlot && active, active,
+                "Cancel the current map mode.", Primary: false)
+        ], _actionToolTip);
+
+        lblMapHint.Visible = canPlot && active;
+        lblMapHint.Text = _mapMode switch
+        {
+            "polygon" => _modeVertexCount < 3
+                ? $"Click to add boundary points ({_modeVertexCount}; at least 3). Enter/double-click to finish; Backspace to undo; Esc to cancel."
+                : $"Click to add boundary points ({_modeVertexCount}). Enter/double-click to finish; Backspace to undo; Esc to cancel.",
+            "marker" => "Click to place the marker, or Esc to cancel.",
+            "editGeometry" => "Drag the vertices. Enter or Finish to save; Esc to cancel.",
+            _ => string.Empty
+        };
+    }
+
+    private void StartDraw(string mode)
+    {
+        if (_presenter is null || _mapMode != "none")
+            return;
+        var permission = _presenter.PlotPermission;
+        if (!permission.Ok)
+        {
+            ShowActionMessage(permission.Message);
+            return;
+        }
+        _map.StartDraw(mode);
+    }
+
+    private void StartShapeEdit()
+    {
+        if (_presenter is null || _currentParcelId is not { } parcelId)
+            return;
+        var permission = _presenter.GetShapeEditPermission(parcelId);
+        if (!permission.Ok)
+        {
+            ShowActionMessage(permission.Message);
+            return;
+        }
+        _map.StartEditGeometry(parcelId);
+    }
+
+    private async Task HandleDrawCompleteAsync(ParcelGeometryEventArgs args)
+    {
+        if (_presenter is null)
+            return;
+
+        var permission = _presenter.PlotPermission;
+        if (!permission.Ok)
+        {
+            ShowActionMessage(permission.Message);
+            return;
+        }
+
+        var validation = ParcelGeometry.Validate(args.Kind, args.Points);
+        if (!validation.Ok)
+        {
+            ShowActionMessage(validation.Message);
+            return;
+        }
+
+        try
+        {
+            var ownersResult = await _presenter.ListOwnersAsync();
+            if (IsDisposed)
+                return;
+            if (!ownersResult.Ok || ownersResult.Value is null)
+            {
+                ShowActionMessage(ownersResult.Message);
+                return;
+            }
+
+            IReadOnlyList<ParcelAgentOption>? agents = null;
+            if (_presenter.CanShowAdminParcelActions)
+            {
+                var agentsResult = await _presenter.ListActiveAgentsAsync();
+                if (!agentsResult.Ok || agentsResult.Value is null)
+                {
+                    ShowActionMessage(agentsResult.Message);
+                    return;
+                }
+                agents = agentsResult.Value;
+            }
+
+            var geoJson = args.Kind == "polygon"
+                ? ParcelGeometry.BuildPolygonGeoJson(args.Points)
+                : null;
+            var marker = args.Kind == "marker" ? args.Points[0] : (ParcelCoordinate?)null;
+            var areaSqm = args.Kind == "polygon" ? ParcelGeometry.ComputeAreaSqm(args.Points) : (decimal?)null;
+            using var dialog = new ParcelDialog(
+                ownersResult.Value,
+                agents,
+                null,
+                areaSqm,
+                geoJson,
+                marker?.Latitude,
+                marker?.Longitude)
+            {
+                CreateOwnerHandler = _presenter.CreateOwnerAsync
+            };
+            if (dialog.ShowDialog(FindForm()) != DialogResult.OK || dialog.CreateRequest is not { } request)
+                return;
+
+            var result = await _presenter.SaveDrawnParcelAsync(request, args.Kind, args.Points);
+            ShowServiceResult(result.Ok, result.Message);
+        }
+        catch (Exception ex)
+        {
+            if (!IsDisposed)
+                ShowActionMessage($"The parcel could not be created. {ex.Message}");
+        }
+    }
+
+    private async Task HandleGeometryEditCompleteAsync(ParcelGeometryEventArgs args)
+    {
+        if (_presenter is null || args.ParcelId is not { } parcelId)
+            return;
+
+        var validation = ParcelGeometry.Validate(args.Kind, args.Points);
+        if (!validation.Ok)
+        {
+            ShowActionMessage(validation.Message);
+            return;
+        }
+
+        try
+        {
+            var result = await _presenter.SaveEditedGeometryAsync(parcelId, args.Kind, args.Points);
+            ShowServiceResult(result.Ok, result.Message);
+        }
+        catch (Exception ex)
+        {
+            if (!IsDisposed)
+                ShowActionMessage($"The parcel shape could not be saved. {ex.Message}");
+        }
+    }
+
+    private async Task EditDetailsAsync()
+    {
+        if (_presenter is null || _currentParcel is not { } parcel)
+            return;
+
+        var permission = _presenter.GetEditPermission(parcel.Id);
+        if (!permission.Ok)
+        {
+            ShowActionMessage(permission.Message);
+            return;
+        }
+
+        try
+        {
+            var ownersResult = await _presenter.ListOwnersAsync();
+            if (IsDisposed)
+                return;
+            if (!ownersResult.Ok || ownersResult.Value is null)
+            {
+                ShowActionMessage(ownersResult.Message);
+                return;
+            }
+
+            using var dialog = new ParcelDialog(
+                ownersResult.Value, null, parcel, null, null, null, null)
+            {
+                CreateOwnerHandler = _presenter.CreateOwnerAsync
+            };
+            if (dialog.ShowDialog(FindForm()) != DialogResult.OK || dialog.UpdateRequest is not { } request)
+                return;
+
+            var result = await _presenter.UpdateParcelAsync(request);
+            ShowServiceResult(result.Ok, result.Message);
+        }
+        catch (Exception ex)
+        {
+            if (!IsDisposed)
+                ShowActionMessage($"The parcel details could not be saved. {ex.Message}");
+        }
+    }
+
+    private async Task ChangePriceAsync()
+    {
+        if (_presenter is null || _currentParcel is not { } parcel)
+            return;
+        var permission = _presenter.CanShowAdminParcelActions;
+        if (!permission)
+        {
+            ShowActionMessage("Only the Tenant Admin can change parcel prices.");
+            return;
+        }
+
+        using var dialog = new ChangePriceDialog(parcel.Id, parcel.Price, parcel.ReservationFee);
+        if (dialog.ShowDialog(FindForm()) != DialogResult.OK || dialog.Request is not { } request)
+            return;
+        try
+        {
+            var result = await _presenter.ChangeParcelPriceAsync(request);
+            ShowServiceResult(result.Ok, result.Message);
+        }
+        catch (Exception ex)
+        {
+            if (!IsDisposed)
+                ShowActionMessage($"The parcel price could not be saved. {ex.Message}");
+        }
+    }
+
+    private async Task ReassignAsync()
+    {
+        if (_presenter is null || _currentParcel is not { } parcel)
+            return;
+        if (!_presenter.CanShowAdminParcelActions)
+        {
+            ShowActionMessage("Only the Tenant Admin can reassign parcels.");
+            return;
+        }
+
+        try
+        {
+            var agentsResult = await _presenter.ListActiveAgentsAsync();
+            if (IsDisposed)
+                return;
+            if (!agentsResult.Ok || agentsResult.Value is null)
+            {
+                ShowActionMessage(agentsResult.Message);
+                return;
+            }
+            if (agentsResult.Value.Count == 0)
+            {
+                ShowActionMessage("There are no active Agents to assign.");
+                return;
+            }
+
+            using var dialog = new ReassignDialog(parcel.Id, agentsResult.Value, parcel.AssignedStaffId);
+            if (dialog.ShowDialog(FindForm()) != DialogResult.OK || dialog.Request is not { } request)
+                return;
+            var result = await _presenter.ReassignParcelAsync(request);
+            ShowServiceResult(result.Ok, result.Message);
+        }
+        catch (Exception ex)
+        {
+            if (!IsDisposed)
+                ShowActionMessage($"The parcel could not be reassigned. {ex.Message}");
+        }
+    }
+
+    private async Task ArchiveAsync()
+    {
+        if (_presenter is null || _currentParcel is not { } parcel)
+            return;
+        if (!_presenter.CanShowAdminParcelActions)
+        {
+            ShowActionMessage("Only the Tenant Admin can archive parcels.");
+            return;
+        }
+
+        if (MessageBox.Show(
+                FindForm(),
+                $"Archive \"{parcel.Label}\"? This is a soft delete; its label remains reserved.",
+                "Archive parcel",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Warning) != DialogResult.Yes)
+            return;
+
+        try
+        {
+            var result = await _presenter.ArchiveParcelAsync(parcel.Id);
+            ShowServiceResult(result.Ok, result.Message);
+        }
+        catch (Exception ex)
+        {
+            if (!IsDisposed)
+                ShowActionMessage($"The parcel could not be archived. {ex.Message}");
+        }
+    }
+
+    private void ShowServiceResult(bool ok, string message)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+            return;
+        if (ok)
+            _map.SetMessage(message);
+        else
+            ShowActionMessage(message);
+    }
+
+    private void ShowActionMessage(string message)
+    {
+        if (!IsDisposed)
+            MessageBox.Show(FindForm(), message, "WayPlot CRM", MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
     }
 
     private async Task OpenLeadFileAsync()
@@ -218,6 +653,10 @@ public partial class ParcelMapView : UserControl, IParcelMapView
             LeadSearchHandler = _presenter.SearchLeadsAsync,
             InteractionSaveHandler = _presenter.LogInteractionAsync
         };
+        dialog.ConfigureMutationActions(
+            _presenter.CanMutateLeads,
+            _presenter.CanMutateLeads,
+            _presenter.MutationUnavailableReason);
         dialog.ShowDialog(FindForm());
     }
 
@@ -225,4 +664,81 @@ public partial class ParcelMapView : UserControl, IParcelMapView
         _factValues[index].Text = string.IsNullOrWhiteSpace(text) ? "—" : text;
 
     private static string Peso(decimal amount) => "₱" + amount.ToString("N0", CultureInfo.InvariantCulture);
+
+    private static string InspectorWidthPath => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "WayPlot",
+        "parcel-map.settings");
+
+    private void LoadInspectorWidth()
+    {
+        _settingsLoaded = true;
+        try
+        {
+            if (File.Exists(InspectorWidthPath)
+                && int.TryParse(File.ReadAllText(InspectorWidthPath), NumberStyles.Integer,
+                    CultureInfo.InvariantCulture, out var width)
+                && width >= layoutMain.Panel2MinSize)
+                _preferredInspectorWidth = width;
+        }
+        catch (IOException ex)
+        {
+            ShowSettingsWarning(ex.Message);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            ShowSettingsWarning(ex.Message);
+        }
+    }
+
+    private void ApplyPreferredInspectorWidth()
+    {
+        var maxInspectorWidth = layoutMain.ClientSize.Width
+            - layoutMain.Panel1MinSize
+            - layoutMain.SplitterWidth;
+        if (maxInspectorWidth < layoutMain.Panel2MinSize)
+            return;
+
+        var inspectorWidth = Math.Clamp(_preferredInspectorWidth, layoutMain.Panel2MinSize, maxInspectorWidth);
+        layoutMain.SplitterDistance = layoutMain.ClientSize.Width - inspectorWidth - layoutMain.SplitterWidth;
+    }
+
+    private void SaveInspectorWidth()
+    {
+        if (!_settingsLoaded || layoutMain.Panel2Collapsed || IsDisposed)
+            return;
+
+        var width = layoutMain.ClientSize.Width - layoutMain.SplitterDistance - layoutMain.SplitterWidth;
+        if (width < layoutMain.Panel2MinSize)
+            return;
+
+        _preferredInspectorWidth = width;
+        try
+        {
+            var path = InspectorWidthPath;
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, width.ToString(CultureInfo.InvariantCulture));
+        }
+        catch (IOException ex)
+        {
+            ShowSettingsWarning(ex.Message);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            ShowSettingsWarning(ex.Message);
+        }
+    }
+
+    private void ShowSettingsWarning(string reason)
+    {
+        if (_settingsWarningShown || IsDisposed)
+            return;
+        _settingsWarningShown = true;
+        MessageBox.Show(
+            FindForm(),
+            $"The parcel map panel width could not be saved or loaded. {reason}",
+            "WayPlot CRM",
+            MessageBoxButtons.OK,
+            MessageBoxIcon.Warning);
+    }
 }

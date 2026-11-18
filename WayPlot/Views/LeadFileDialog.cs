@@ -9,6 +9,7 @@ namespace WayPlot.Views;
 public partial class LeadFileDialog : Form
 {
     private LeadFileDto _file;
+    private readonly ToolTip _actionToolTip = new();
 
     public LeadFileDialog(LeadFileDto file)
     {
@@ -40,6 +41,26 @@ public partial class LeadFileDialog : Form
     [Browsable(false)]
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public Func<LogInteractionRequest, Task<ServiceResult<InteractionListItem>>>? InteractionSaveHandler { get; set; }
+
+    [Browsable(false)]
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public bool CanMoveStage { get; set; } = true;
+
+    [Browsable(false)]
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public bool CanLogInteraction { get; set; } = true;
+
+    [Browsable(false)]
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public string MutationUnavailableReason { get; set; } = "This action is unavailable for your role.";
+
+    public void ConfigureMutationActions(bool canMoveStage, bool canLogInteraction, string unavailableReason)
+    {
+        CanMoveStage = canMoveStage;
+        CanLogInteraction = canLogInteraction;
+        MutationUnavailableReason = unavailableReason;
+        UpdateActionAvailability();
+    }
 
     private void ApplyTheme()
     {
@@ -171,6 +192,19 @@ public partial class LeadFileDialog : Form
             listInteractions.Items.Add(item);
         }
         listInteractions.EndUpdate();
+        UpdateActionAvailability();
+    }
+
+    private void UpdateActionAvailability()
+    {
+        ButtonStyle.ApplyAvailability(
+            [
+                new ButtonAvailability(btnMoveStage, CanMoveStage, CanMoveStage,
+                    CanMoveStage ? null : MutationUnavailableReason, Primary: true),
+                new ButtonAvailability(btnLogInteraction, CanLogInteraction, CanLogInteraction,
+                    CanLogInteraction ? null : MutationUnavailableReason, Primary: false)
+            ],
+            _actionToolTip);
     }
 
     private void ShowStatus(string text, bool isError)

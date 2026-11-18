@@ -15,17 +15,20 @@ public sealed class MainShellPresenter(LoginResult login, ITenantFeatures featur
 
     public IReadOnlyList<ShellTab> BuildTabs()
     {
-        var tabs = new List<ShellTab>
-        {
-            Tab("parcel-map", "Parcel map", features.DataCollection),
-            Tab("contacts", "Contacts", features.DataCollection),
-            Tab("leads", "Leads", features.MainTransaction),
-            Tab("interactions", "Interactions", features.MainTransaction),
-            Tab("deals", "Deals & payments", features.DealsPayments)
-        };
+        var tabs = new List<ShellTab>();
         if (login.Role != Roles.SuperAdmin)
+        {
+            tabs.AddRange(
+            [
+                Tab("parcel-map", "Parcel map", features.DataCollection),
+                Tab("contacts", "Contacts", features.DataCollection),
+                Tab("leads", "Leads", features.MainTransaction),
+                Tab("interactions", "Interactions", features.MainTransaction),
+                Tab("deals", "Deals & payments", features.DealsPayments)
+            ]);
+            tabs.Add(Tab("import", "Import", features.DataCollection));
             tabs.Add(Tab("commissions", "Commissions", features.DealsPayments));
-        tabs.Add(Tab("import", "Import", features.DataCollection));
+        }
         tabs.Add(Tab("intelligence", "Intelligence", features.BusinessIntelligence, "Available in Tier B"));
         return tabs;
     }

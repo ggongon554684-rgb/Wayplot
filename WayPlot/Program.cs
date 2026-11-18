@@ -7,6 +7,7 @@ using WayPlot.Presenters;
 using WayPlot.Views;
 using WayPlot.domain.Services.DataCollection;
 using WayPlot.domain.Services.MainTransaction;
+using WayPlot.UI;
 
 namespace WayPlot;
 
@@ -23,6 +24,9 @@ internal static class Program
         });
         var apiUrl = builder.Configuration["Api:BaseUrl"] ?? "http://localhost:5039";
         var serverName = builder.Configuration["Tenancy:ServerName"] ?? "(localdb)\\MSSQLLocalDB";
+        var mapTileOptions = new MapTileOptions(
+            builder.Configuration["MapTiles:TileUrlTemplate"] ?? MapTileOptions.Default.TileUrlTemplate,
+            builder.Configuration["MapTiles:Attribution"] ?? MapTileOptions.Default.Attribution);
 
         builder.Services.AddSingleton(new HttpClient { BaseAddress = new Uri(apiUrl) });
         builder.Services.AddSingleton<AuthClient>();
@@ -39,9 +43,11 @@ internal static class Program
                 ["parcel-map"] = () =>
                 {
                     var view = new ParcelMapView();
+                    view.ConfigureMapTiles(mapTileOptions);
                     view.Presenter = new ParcelMapPresenter(
                         view, sp.GetRequiredService<ParcelService>(), sp.GetRequiredService<LeadService>(),
-                        sp.GetRequiredService<ContactService>(), sp.GetRequiredService<InteractionService>());
+                        sp.GetRequiredService<ContactService>(), sp.GetRequiredService<InteractionService>(),
+                        sp.GetRequiredService<TenantAccessPolicy>());
                     return view;
                 },
                 ["contacts"] = () =>
@@ -51,21 +57,24 @@ internal static class Program
                         view,
                         sp.GetRequiredService<ContactService>(),
                         sp.GetRequiredService<ContactImportService>(),
-                        sp.GetRequiredService<ICurrentUser>());
+                        sp.GetRequiredService<ICurrentUser>(),
+                        sp.GetRequiredService<TenantAccessPolicy>());
                     return view;
                 },
                 ["leads"] = () =>
                 {
                     var view = new LeadsView();
                     view.Presenter = new LeadsPresenter(
-                        view, sp.GetRequiredService<LeadService>(), sp.GetRequiredService<InteractionService>());
+                        view, sp.GetRequiredService<LeadService>(), sp.GetRequiredService<InteractionService>(),
+                        sp.GetRequiredService<TenantAccessPolicy>());
                     return view;
                 },
                 ["interactions"] = () =>
                 {
                     var view = new InteractionsView();
                     view.Presenter = new InteractionsPresenter(
-                        view, sp.GetRequiredService<InteractionService>(), sp.GetRequiredService<LeadService>());
+                        view, sp.GetRequiredService<InteractionService>(), sp.GetRequiredService<LeadService>(),
+                        sp.GetRequiredService<TenantAccessPolicy>());
                     return view;
                 },
                 ["deals"] = () =>

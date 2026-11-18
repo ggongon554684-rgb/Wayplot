@@ -84,7 +84,29 @@ public sealed record CreateParcelRequest(
     string Utilities,
     string RoadAccess,
     Guid OwnerId,
-    ParcelStatus Status = ParcelStatus.Available);
+    ParcelStatus Status = ParcelStatus.Available,
+    Guid? AssignedStaffId = null);
+
+public sealed record UpdateParcelRequest(
+    Guid ParcelId,
+    string Label,
+    string Description,
+    decimal AreaSqm,
+    string Zoning,
+    string? GeoJson,
+    double? Latitude,
+    double? Longitude,
+    string TaxDeclarationNo,
+    string TitleNo,
+    string Utilities,
+    string RoadAccess,
+    Guid OwnerId);
+
+public sealed record ChangeParcelPriceRequest(Guid ParcelId, decimal Price, decimal ReservationFee);
+
+public sealed record ReassignParcelRequest(Guid ParcelId, Guid AssignedStaffId);
+
+public sealed record ParcelAgentOption(Guid Id, string FullName);
 
 /// <summary>PricePerSqm and ReservationPercent are computed by ParcelService, never by a screen.</summary>
 public sealed record ParcelDto(
@@ -106,7 +128,11 @@ public sealed record ParcelDto(
     string Utilities,
     string RoadAccess,
     Guid OwnerId,
-    string OwnerName);
+    string OwnerName,
+    string OwnerPhone = "",
+    string? OwnerEmail = null,
+    bool OwnerListingAgreementOnFile = false,
+    Guid? AssignedStaffId = null);
 
 // ---- Leads ----
 public sealed record AttachLeadRequest(Guid ContactId, Guid ParcelId, Guid? AssignedStaffId = null);

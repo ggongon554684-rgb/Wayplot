@@ -14,28 +14,40 @@ public sealed class ContactService(
     ITenantUnitOfWorkFactory uowFactory,
     IDomainEventDispatcher events,
     ICurrentUser user,
-    IClock clock)
+    IClock clock,
+    TenantAccessPolicy access)
 {
     public async Task<CaptureResult> CaptureAsync(CaptureContactRequest request)
     {
-        var error = ValidateRequest(request, out var name, out var phoneText, out var phone, out var email);
+        var permission = access.RequireDataMutation("capture contacts");
+        if (!permission.Ok)
+            return CaptureResult.Fail(permission.Message);
+
+        if (access.IsAgent && request.AssignedStaffId is { } assignedStaffId && assignedStaffId != access.CurrentStaffId)
+            return CaptureResult.Fail("Agents can only capture contacts assigned to themselves.");
+
+        var effectiveRequest = access.IsAgent
+            ? request with { AssignedStaffId = access.CurrentStaffId }
+            : request;
+
+        var error = ValidateRequest(effectiveRequest, out var name, out var phoneText, out var phone, out var email);
         if (error is not null)
             return CaptureResult.Fail(error);
 
         await using var uow = uowFactory.Create();
 
-        var referrerError = await ValidateReferrerAsync(uow, request);
+        var referrerError = await ValidateReferrerAsync(uow, effectiveRequest);
         if (referrerError is not null)
             return CaptureResult.Fail(referrerError);
 
-        if (request.AssignedStaffId is { } assignedStaffId
-            && assignedStaffId != user.UserId
-            && !await uow.Staff.IsActiveAgentAsync(assignedStaffId))
+        if (effectiveRequest.AssignedStaffId is { } effectiveAssignedStaffId
+            && effectiveAssignedStaffId != user.UserId
+            && !await uow.Staff.IsActiveAgentAsync(effectiveAssignedStaffId))
             return CaptureResult.Fail("The assigned agent was not found or is inactive.");
 
         var existing = await uow.Contacts.FindByPhoneOrEmailAsync(phone, email);
         if (existing is not null)
-            return await RecordInquiryOnExistingAsync(uow, existing, request);
+            return await RecordInquiryOnExistingAsync(uow, existing, effectiveRequest);
 
         var now = clock.UtcNow;
         var contact = new Contact
@@ -44,16 +56,16 @@ public sealed class ContactService(
             Phone = phoneText,
             PhoneNormalized = phone,
             Email = email,
-            Source = request.Source,
-            Type = request.Type,
-            ConsentSms = request.ConsentSms,
-            ConsentEmail = request.ConsentEmail,
-            ConsentAtUtc = request.ConsentSms || request.ConsentEmail ? now : null,
-            ReferrerContactId = request.ReferrerContactId,
-            ReferrerStaffId = request.ReferrerStaffId,
-            ReferrerName = Clean(request.ReferrerName),
-            ReferrerPhone = Clean(request.ReferrerPhone),
-            AssignedStaffId = request.AssignedStaffId
+            Source = effectiveRequest.Source,
+            Type = effectiveRequest.Type,
+            ConsentSms = effectiveRequest.ConsentSms,
+            ConsentEmail = effectiveRequest.ConsentEmail,
+            ConsentAtUtc = effectiveRequest.ConsentSms || effectiveRequest.ConsentEmail ? now : null,
+            ReferrerContactId = effectiveRequest.ReferrerContactId,
+            ReferrerStaffId = effectiveRequest.ReferrerStaffId,
+            ReferrerName = Clean(effectiveRequest.ReferrerName),
+            ReferrerPhone = Clean(effectiveRequest.ReferrerPhone),
+            AssignedStaffId = effectiveRequest.AssignedStaffId
         };
 
         uow.Contacts.Add(contact);
@@ -106,8 +118,12 @@ public sealed class ContactService(
     /// <summary>The contacts for the list screen, ordered by name. A blank search returns everyone.</summary>
     public async Task<ServiceResult<IReadOnlyList<ContactListItem>>> ListAsync(string? search)
     {
+        var scope = access.GetDataReadScope("contacts");
+        if (!scope.Ok)
+            return ServiceResult<IReadOnlyList<ContactListItem>>.Fail(scope.Message);
+
         await using var uow = uowFactory.Create();
-        var found = await uow.Contacts.SearchAsync(search);
+        var found = await uow.Contacts.SearchAsync(search, scope.Value);
 
         IReadOnlyList<ContactListItem> items = found
             .Select(c => new ContactListItem(
@@ -119,8 +135,12 @@ public sealed class ContactService(
 
     public async Task<ServiceResult<ContactReferralOptions>> ListReferralOptionsAsync()
     {
+        var scope = access.GetDataReadScope("contacts");
+        if (!scope.Ok)
+            return ServiceResult<ContactReferralOptions>.Fail(scope.Message);
+
         await using var uow = uowFactory.Create();
-        var contacts = await uow.Contacts.ListReferralContactsAsync();
+        var contacts = await uow.Contacts.ListReferralContactsAsync(scope.Value);
         var staff = await uow.Staff.ListActiveReferralStaffAsync();
         return ServiceResult<ContactReferralOptions>.Success(new ContactReferralOptions(
             contacts.Select(contact => new ReferralChoice(
@@ -138,9 +158,16 @@ public sealed class ContactService(
     private async Task<CaptureResult> RecordInquiryOnExistingAsync(
         ITenantUnitOfWork uow, Contact existing, CaptureContactRequest request)
     {
-        var referrerResult = ApplyReferrer(existing, request);
-        if (referrerResult is not null)
-            return CaptureResult.Fail(referrerResult);
+        var protectedOtherAgent = access.IsAgentAssignedToAnotherStaff(existing.AssignedStaffId);
+        var scope = access.GetDataReadScope("contacts");
+        var isVisible = scope.Ok && await uow.Contacts.GetAsync(existing.Id, scope.Value) is not null;
+        var protectExisting = !isVisible || protectedOtherAgent;
+        if (!protectExisting)
+        {
+            var referrerResult = ApplyReferrer(existing, request);
+            if (referrerResult is not null)
+                return CaptureResult.Fail(referrerResult);
+        }
 
         var now = clock.UtcNow;
         var channel = ChannelFor(request.Source);
@@ -162,7 +189,8 @@ public sealed class ContactService(
         });
 
         var lead = await uow.Leads.GetLatestActiveForContactAsync(existing.Id);
-        if (lead is not null)
+        var interactionAdded = false;
+        if (lead is not null && !protectExisting && access.RequireLeadMutation(lead, "log an interaction").Ok)
         {
             uow.Interactions.Add(new Interaction
             {
@@ -174,17 +202,20 @@ public sealed class ContactService(
                 LoggedByStaffId = user.UserId
             });
             lead.LastActivityAtUtc = now;
+            interactionAdded = true;
         }
 
         await uow.SaveAsync();
-        if (lead is not null)
+        if (interactionAdded && lead is not null)
             await events.DispatchAsync(new InteractionLogged(lead.Id, InteractionType.Inquiry, channel, now));
 
         return CaptureResult.Success(
-            new CaptureContactResult(existing.Id, existing.FullName, MatchedExisting: true, InquiryRecorded: true),
-            lead is null
-                ? $"Matched existing contact {existing.FullName}. Inquiry added to contact history."
-                : $"Matched existing contact {existing.FullName}. Inquiry added to history.");
+            new CaptureContactResult(protectExisting ? Guid.Empty : existing.Id, protectExisting ? string.Empty : existing.FullName, MatchedExisting: true, InquiryRecorded: true),
+            protectedOtherAgent
+                ? "A contact already exists and is assigned to another agent."
+                : protectExisting
+                    ? "A contact already exists."
+                    : "Matched an existing contact. Inquiry added to history.");
     }
 
     private static InteractionChannel ChannelFor(LeadSource source) => source switch
@@ -200,7 +231,10 @@ public sealed class ContactService(
         if (fieldError is not null)
             return fieldError;
 
-        if (request.ReferrerContactId is { } contactId && await uow.Contacts.GetAsync(contactId) is null)
+        var scope = access.GetDataReadScope("contacts");
+        if (!scope.Ok)
+            return scope.Message;
+        if (request.ReferrerContactId is { } contactId && await uow.Contacts.GetAsync(contactId, scope.Value) is null)
             return "The selected referrer contact was not found.";
         if (request.ReferrerStaffId is { } staffId && !await uow.Staff.IsActiveReferralStaffAsync(staffId))
             return "The selected referrer staff member was not found or is inactive.";

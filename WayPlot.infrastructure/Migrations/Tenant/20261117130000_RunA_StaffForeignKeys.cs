@@ -107,7 +107,13 @@ public partial class RunA_StaffForeignKeys : Migration
     }
 
     private static void AddStaffForeignKey(MigrationBuilder m, string name, string table, string column) =>
-        m.AddForeignKey(name, table, column, "Staffs", "Id", onDelete: ReferentialAction.Restrict);
+        m.AddForeignKey(
+            name,
+            table,
+            columns: new[] { column },
+            principalTable: "Staffs",
+            principalColumns: new[] { "Id" },
+            onDelete: ReferentialAction.Restrict);
 
     private static void DropStaffForeignKey(MigrationBuilder m, string name, string table) =>
         m.DropForeignKey(name, table);

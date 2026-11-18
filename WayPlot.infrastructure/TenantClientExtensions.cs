@@ -23,6 +23,7 @@ public static class TenantClientExtensions
         services.AddSingleton<IClock, SystemClock>();
         services.AddSingleton<SessionContext>();
         services.AddSingleton<ICurrentUser>(sp => sp.GetRequiredService<SessionContext>());
+        services.AddSingleton<TenantAccessPolicy>();
         services.AddSingleton(new TenantSession(serverName));
         services.AddSingleton<ITenantDbContextFactory, TenantDbContextFactory>();
         services.AddSingleton<ITenantUnitOfWorkFactory, TenantUnitOfWorkFactory>();

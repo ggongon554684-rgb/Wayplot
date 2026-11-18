@@ -1,5 +1,6 @@
 ﻿using WayPlot.domain.Entities;
 using WayPlot.domain.Common;
+using WayPlot.domain.Services.DataCollection;
 
 namespace WayPlot.domain.Repositories;
 
@@ -19,21 +20,22 @@ public interface IParcelRepository
     Task<Parcel?> GetAsync(Guid id);
     /// <summary>All parcels with Owner loaded, ordered by Label.</summary>
     Task<IReadOnlyList<Parcel>> ListAsync();
-    Task<bool> LabelExistsAsync(string label);
+    /// <summary>Checks labels across active and archived parcels, optionally excluding the edited parcel.</summary>
+    Task<bool> LabelExistsAsync(string label, Guid? exceptParcelId = null);
     void Add(Parcel parcel);
 }
 
 public interface IContactRepository
 {
-    Task<Contact?> GetAsync(Guid id);
+    Task<Contact?> GetAsync(Guid id, TenantDataScope? scope = null);
     /// <summary>Contacts available as referrers, ordered by name, without tracking.</summary>
-    Task<IReadOnlyList<Contact>> ListReferralContactsAsync();
+    Task<IReadOnlyList<Contact>> ListReferralContactsAsync(TenantDataScope? scope = null);
     /// <summary>First contact whose PhoneNormalized equals the phone OR whose Email equals the email. Null arguments are ignored.</summary>
     Task<Contact?> FindByPhoneOrEmailAsync(string? phoneNormalized, string? email);
     /// <summary>Contacts matching any normalized phone or email in the supplied batch, without tracking.</summary>
-    Task<IReadOnlyList<Contact>> FindMatchesAsync(IReadOnlyCollection<string> phoneNumbers, IReadOnlyCollection<string> emails);
+    Task<IReadOnlyList<Contact>> FindMatchesAsync(IReadOnlyCollection<string> phoneNumbers, IReadOnlyCollection<string> emails, TenantDataScope? scope = null);
     /// <summary>Contacts ordered by name. Matches the text against name, email and (for 3+ digits) phone. Blank returns everyone.</summary>
-    Task<IReadOnlyList<Contact>> SearchAsync(string? text);
+    Task<IReadOnlyList<Contact>> SearchAsync(string? text, TenantDataScope? scope = null);
     void Add(Contact contact);
 }
 
@@ -81,13 +83,14 @@ public interface IDuplicateInquiryRepository
 public interface ILeadRepository
 {
     /// <summary>The lead with Contact and Parcel loaded.</summary>
-    Task<Lead?> GetAsync(Guid id);
+    Task<Lead?> GetAsync(Guid id, TenantDataScope? scope = null);
     /// <summary>The lead with Contact and Parcel loaded for display, without tracking.</summary>
-    Task<Lead?> GetForDisplayAsync(Guid id);
+    Task<Lead?> GetForDisplayAsync(Guid id, TenantDataScope? scope = null);
     /// <summary>Leads matching the optional stage and contact/parcel search, newest activity first.</summary>
-    Task<IReadOnlyList<Lead>> ListAsync(LeadStage? stage, string? search, Guid? assignedStaffId = null);
+    Task<IReadOnlyList<Lead>> ListAsync(LeadStage? stage, string? search, Guid? assignedStaffId = null, TenantDataScope? scope = null);
     /// <summary>Leads on the parcel with Contact and Parcel loaded, newest activity first.</summary>
-    Task<IReadOnlyList<Lead>> ListByParcelAsync(Guid parcelId);
+    Task<IReadOnlyList<Lead>> ListByParcelAsync(Guid parcelId, TenantDataScope? scope = null);
+    Task<IReadOnlyList<LeadStage>> ListStagesByParcelAsync(Guid parcelId);
     /// <summary>The contact's most recent lead that is not Lost, or null.</summary>
     Task<Lead?> GetLatestActiveForContactAsync(Guid contactId);
     /// <summary>True when the contact already has a lead on the parcel that is not Lost.</summary>
@@ -100,9 +103,9 @@ public interface ILeadRepository
 public interface IInteractionRepository
 {
     /// <summary>Interactions with lead, contact and parcel loaded, newest first, without tracking.</summary>
-    Task<IReadOnlyList<Interaction>> ListAsync(Guid? leadId, InteractionType? type);
+    Task<IReadOnlyList<Interaction>> ListAsync(Guid? leadId, InteractionType? type, TenantDataScope? scope = null);
     /// <summary>Interactions for one lead, newest first, without tracking.</summary>
-    Task<IReadOnlyList<Interaction>> ListByLeadAsync(Guid leadId);
+    Task<IReadOnlyList<Interaction>> ListByLeadAsync(Guid leadId, TenantDataScope? scope = null);
     void Add(Interaction interaction);
 }
 
@@ -123,6 +126,7 @@ public interface IDealRepository
     Task<IReadOnlyList<Deal>> ListFullyPaidMissingCommissionAsync();
     /// <summary>True when a deal already holds the parcel.</summary>
     Task<bool> ActiveForParcelExistsAsync(Guid parcelId);
+    Task<IReadOnlyList<DealStatus>> ListStatusesByParcelAsync(Guid parcelId);
     void Add(Deal deal);
 }
 

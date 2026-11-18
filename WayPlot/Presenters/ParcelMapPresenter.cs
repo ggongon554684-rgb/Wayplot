@@ -1,3 +1,4 @@
+using System.Text.Json;
 ﻿using WayPlot.domain.Common;
 using WayPlot.domain.Contracts;
 using WayPlot.domain.Services.DataCollection;
@@ -13,7 +14,7 @@ public interface IParcelMapView
     /// <summary>Text drawn in the middle of the map (loading, errors, empty). Null clears it.</summary>
     void ShowMessage(string? text);
 
-    void ShowShapes(IReadOnlyList<MapShape> shapes, int unplotted);
+    void ShowParcels(string featureCollectionJson, int featureCount, int unplotted);
 
     /// <summary>Fills the inspector. leads is null while they are still loading.</summary>
     void ShowParcel(ParcelDto parcel, IReadOnlyList<LeadDto>? leads);
@@ -21,45 +22,177 @@ public interface IParcelMapView
     void ShowLeadsError(string message);
 
     void ClearParcel();
+
+    void FocusParcel(Guid parcelId);
 }
 
-/// <summary>Loads the parcels, turns them into map shapes, and fills the inspector when one is selected.
+/// <summary>Loads the parcels, turns them into GeoJSON features, and fills the inspector when one is selected.
 /// All data comes from the services; the map and the inspector only draw what they are given.</summary>
 public sealed class ParcelMapPresenter(
     IParcelMapView view,
     ParcelService parcels,
     LeadService leads,
     ContactService contacts,
-    InteractionService interactions)
+    InteractionService interactions,
+    TenantAccessPolicy access)
 {
     private readonly Dictionary<Guid, ParcelDto> _byId = [];
     private int _selectionToken;
     private int _loadToken;
     private Guid? _selectedParcelId;
 
+    public bool CanShowAttachLead => access.CanMutateData;
+    public bool CanAttachLeads => access.CanMutateData && _selectedParcelId is not null;
+    public string? AttachUnavailableReason => !access.CanMutateData
+        ? access.MutationUnavailableReason
+        : _selectedParcelId is null ? "Select a parcel first." : null;
+    public bool CanMutateLeads => access.CanMutateData;
+    public string MutationUnavailableReason => access.MutationUnavailableReason;
+    public bool CanShowParcelActions => access.CanMutateData;
+    public bool CanShowAdminParcelActions => access.CanChangeParcelPrice().Ok;
+    public RuleResult PlotPermission => access.CanPlotParcel();
+    public bool CanPlotParcel => PlotPermission.Ok;
+
+    public RuleResult GetEditPermission(Guid? parcelId)
+    {
+        if (parcelId is null || !_byId.TryGetValue(parcelId.Value, out var parcel))
+            return RuleResult.Fail("Select a parcel first.");
+        return access.CanEditParcel(parcel.AssignedStaffId);
+    }
+
+    public RuleResult GetShapeEditPermission(Guid? parcelId)
+    {
+        var permission = GetEditPermission(parcelId);
+        if (!permission.Ok || parcelId is null || !_byId.TryGetValue(parcelId.Value, out var parcel))
+            return permission;
+
+        var geometry = GetEditableGeometry(parcel);
+        return geometry.Ok
+            ? RuleResult.Success()
+            : RuleResult.Fail(geometry.Message);
+    }
+
+    public async Task<ServiceResult<IReadOnlyList<OwnerDto>>> ListOwnersAsync() =>
+        await parcels.ListOwnersAsync();
+
+    public async Task<ServiceResult<IReadOnlyList<ParcelAgentOption>>> ListActiveAgentsAsync() =>
+        await parcels.ListActiveAgentsAsync();
+
+    public async Task<ServiceResult<OwnerDto>> CreateOwnerAsync(CreateOwnerRequest request) =>
+        await parcels.CreateOwnerAsync(request);
+
+    public async Task<ServiceResult<ParcelDto>> CreateParcelAsync(CreateParcelRequest request)
+    {
+        var result = await parcels.CreateAsync(request);
+        if (result.Ok && result.Value is { } parcel)
+            await ReloadAndSelectSavedAsync(parcel.Id);
+        return result;
+    }
+
+    public async Task<ServiceResult<ParcelDto>> UpdateParcelAsync(UpdateParcelRequest request)
+    {
+        var result = await parcels.UpdateAsync(request);
+        if (result.Ok && result.Value is { } parcel)
+            await ReloadAndSelectSavedAsync(parcel.Id);
+        return result;
+    }
+
+    public async Task<ServiceResult<ParcelDto>> ChangeParcelPriceAsync(ChangeParcelPriceRequest request)
+    {
+        var result = await parcels.ChangePriceAsync(request);
+        if (result.Ok && result.Value is { } parcel)
+            await ReloadAndSelectSavedAsync(parcel.Id);
+        return result;
+    }
+
+    public async Task<ServiceResult<ParcelDto>> ReassignParcelAsync(ReassignParcelRequest request)
+    {
+        var result = await parcels.ReassignAsync(request);
+        if (result.Ok && result.Value is { } parcel)
+            await ReloadAndSelectSavedAsync(parcel.Id);
+        return result;
+    }
+
+    public async Task<ServiceResult<bool>> ArchiveParcelAsync(Guid parcelId)
+    {
+        var result = await parcels.ArchiveAsync(parcelId);
+        if (result.Ok)
+        {
+            await LoadAsync();
+            await SelectAsync(null);
+        }
+        return result;
+    }
+
+    public async Task<ServiceResult<ParcelDto>> SaveDrawnParcelAsync(
+        CreateParcelRequest request,
+        string kind,
+        IReadOnlyList<ParcelCoordinate> points)
+    {
+        var validation = ParcelGeometry.Validate(kind, points);
+        if (!validation.Ok)
+            return ServiceResult<ParcelDto>.Fail(validation.Message);
+        return await CreateParcelAsync(request);
+    }
+
+    public async Task<ServiceResult<ParcelDto>> SaveEditedGeometryAsync(
+        Guid parcelId,
+        string kind,
+        IReadOnlyList<ParcelCoordinate> points)
+    {
+        var validation = ParcelGeometry.Validate(kind, points);
+        if (!validation.Ok)
+            return ServiceResult<ParcelDto>.Fail(validation.Message);
+        if (!_byId.TryGetValue(parcelId, out var parcel))
+            return ServiceResult<ParcelDto>.Fail("That parcel is no longer available. Reload the map.");
+
+        var permission = access.CanEditParcel(parcel.AssignedStaffId);
+        if (!permission.Ok)
+            return ServiceResult<ParcelDto>.Fail(permission.Message);
+
+        var geoJson = kind == "polygon" ? ParcelGeometry.BuildPolygonGeoJson(points) : null;
+        var marker = kind == "marker" ? points[0] : (ParcelCoordinate?)null;
+        var areaSqm = kind == "polygon" ? ParcelGeometry.ComputeAreaSqm(points) : parcel.AreaSqm;
+        return await UpdateParcelAsync(new UpdateParcelRequest(
+            parcel.Id,
+            parcel.Label,
+            parcel.Description,
+            areaSqm,
+            parcel.Zoning,
+            geoJson,
+            marker?.Latitude,
+            marker?.Longitude,
+            parcel.TaxDeclarationNo,
+            parcel.TitleNo,
+            parcel.Utilities,
+            parcel.RoadAccess,
+            parcel.OwnerId));
+    }
+
     public async Task LoadAsync()
     {
         var token = ++_loadToken;
         if (view.IsDisposed) return;
+        _byId.Clear();
         view.ShowMessage("Loading parcels...");
         try
         {
-            var list = await parcels.ListAsync();
+            var result = await parcels.ListAsync();
             if (token != _loadToken || view.IsDisposed) return;
+            if (!result.Ok || result.Value is null)
+            {
+                view.ShowMessage(result.Message);
+                return;
+            }
+            var list = result.Value;
 
             _byId.Clear();
-            var shapes = new List<MapShape>();
-            var unplotted = 0;
             foreach (var parcel in list)
-            {
                 _byId[parcel.Id] = parcel;
-                var shape = ParcelShapeBuilder.Build(parcel);
-                if (shape is null) unplotted++;
-                else shapes.Add(shape);
-            }
 
-            view.ShowShapes(shapes, unplotted);
-            view.ShowMessage(shapes.Count == 0 ? "No parcels have a map position yet." : null);
+            var features = ParcelGeoJsonBuilder.Build(list);
+            view.ShowParcels(features.FeatureCollection, features.FeatureCount, features.Unplotted);
+            view.ShowMessage(features.FeatureCount == 0 ? "No parcels have a map position yet." : null);
         }
         catch (Exception ex)
         {
@@ -86,9 +219,14 @@ public sealed class ParcelMapPresenter(
 
         try
         {
-            var list = await leads.ListByParcelAsync(parcel.Id);
+            var result = await leads.ListByParcelAsync(parcel.Id);
             if (token != _selectionToken || view.IsDisposed) return;   // the agent clicked something else meanwhile
-            view.ShowParcel(parcel, list);
+            if (!result.Ok || result.Value is null)
+            {
+                view.ShowLeadsError(result.Message);
+                return;
+            }
+            view.ShowParcel(parcel, result.Value);
         }
         catch (Exception ex)
         {
@@ -188,5 +326,77 @@ public sealed class ParcelMapPresenter(
             return;
         if (selected is not null)
             await SelectAsync(selected);
+    }
+
+    private async Task ReloadAndSelectSavedAsync(Guid parcelId)
+    {
+        await LoadAsync();
+        if (view.IsDisposed || !_byId.ContainsKey(parcelId))
+            return;
+
+        view.FocusParcel(parcelId);
+        await SelectAsync(parcelId);
+    }
+
+    private static EditableGeometryResult GetEditableGeometry(ParcelDto parcel)
+    {
+        if (!string.IsNullOrWhiteSpace(parcel.GeoJson))
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(parcel.GeoJson);
+                var root = document.RootElement;
+                if (root.ValueKind != JsonValueKind.Object
+                    || !root.TryGetProperty("type", out var type)
+                    || type.ValueKind != JsonValueKind.String
+                    || type.GetString() != "Polygon"
+                    || !root.TryGetProperty("coordinates", out var coordinates)
+                    || coordinates.ValueKind != JsonValueKind.Array
+                    || coordinates.GetArrayLength() != 1
+                    || coordinates[0].ValueKind != JsonValueKind.Array)
+                    return EditableGeometryResult.Fail("This boundary cannot be edited here because it must be a Polygon with one ring.");
+
+                var ring = coordinates[0];
+                var points = new List<ParcelCoordinate>(ring.GetArrayLength());
+                foreach (var position in ring.EnumerateArray())
+                {
+                    if (position.ValueKind != JsonValueKind.Array
+                        || position.GetArrayLength() != 2
+                        || position[0].ValueKind != JsonValueKind.Number
+                        || position[1].ValueKind != JsonValueKind.Number
+                        || !position[0].TryGetDouble(out var longitude)
+                        || !position[1].TryGetDouble(out var latitude))
+                        return EditableGeometryResult.Fail("This boundary contains an invalid coordinate.");
+                    points.Add(new ParcelCoordinate(longitude, latitude));
+                }
+
+                if (points.Count > 1 && points[0] == points[^1])
+                    points.RemoveAt(points.Count - 1);
+                var validation = ParcelGeometry.Validate("polygon", points);
+                return validation.Ok
+                    ? EditableGeometryResult.Success()
+                    : EditableGeometryResult.Fail(validation.Message);
+            }
+            catch (JsonException)
+            {
+                return EditableGeometryResult.Fail("This boundary is not valid GeoJSON.");
+            }
+        }
+
+        if (parcel.Latitude is not { } markerLatitude || parcel.Longitude is not { } markerLongitude)
+            return EditableGeometryResult.Fail("This parcel has no boundary or marker to edit.");
+
+        var markerValidation = ParcelGeometry.Validate(
+            "marker",
+            [new ParcelCoordinate(markerLongitude, markerLatitude)]);
+        return markerValidation.Ok
+            ? EditableGeometryResult.Success()
+            : EditableGeometryResult.Fail(markerValidation.Message);
+    }
+
+    private readonly record struct EditableGeometryResult(bool Ok, string Message)
+    {
+        public static EditableGeometryResult Success() => new(true, string.Empty);
+        public static EditableGeometryResult Fail(string message) => new(false, message);
     }
 }

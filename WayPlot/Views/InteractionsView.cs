@@ -10,6 +10,7 @@ namespace WayPlot.Views;
 public partial class InteractionsView : UserControl, IInteractionsView
 {
     private InteractionsPresenter? _presenter;
+    private readonly ToolTip _actionToolTip = new();
 
     public InteractionsView()
     {
@@ -32,12 +33,17 @@ public partial class InteractionsView : UserControl, IInteractionsView
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public InteractionsPresenter? Presenter
     {
-        set => _presenter = value;
+        set
+        {
+            _presenter = value;
+            UpdateLogAction();
+        }
     }
 
     protected override async void OnLoad(EventArgs e)
     {
         base.OnLoad(e);
+        UpdateLogAction();
         if (_presenter is not null && !DesignMode)
             await LoadAsync();
     }
@@ -78,6 +84,15 @@ public partial class InteractionsView : UserControl, IInteractionsView
             return;
 
         await LoadAsync(saved.Message);
+    }
+
+    private void UpdateLogAction()
+    {
+        var canLog = _presenter?.CanLogInteractions == true;
+        ButtonStyle.ApplyAvailability(
+            [new ButtonAvailability(btnLogInteraction, canLog, canLog,
+                canLog ? null : _presenter?.MutationUnavailableReason, Primary: true)],
+            _actionToolTip);
     }
 
     public void ShowInteractions(IReadOnlyList<InteractionListItem> interactions)

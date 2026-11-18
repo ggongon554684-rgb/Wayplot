@@ -11,10 +11,15 @@ public sealed class ContactImportService(
     ITenantUnitOfWorkFactory uowFactory,
     ContactService contacts,
     LeadService leads,
-    ICurrentUser user)
+    ICurrentUser user,
+    TenantAccessPolicy access)
 {
     public ServiceResult<IReadOnlyList<ImportCsvColumn>> ReadColumns(string csvContent)
     {
+        var permission = access.RequireDataMutation("import contacts");
+        if (!permission.Ok)
+            return ServiceResult<IReadOnlyList<ImportCsvColumn>>.Fail(permission.Message);
+
         var parsed = ParseCsv(csvContent);
         return parsed.Ok
             ? ServiceResult<IReadOnlyList<ImportCsvColumn>>.Success(parsed.Value!.Columns)
@@ -122,8 +127,9 @@ public sealed class ContactImportService(
         string csvContent,
         ContactImportMapping mapping)
     {
-        if (user.Role is not (Roles.Agent or Roles.TenantAdmin))
-            return ServiceResult<PreparedImport>.Fail("Only Agents and Tenant Admins can import contacts.");
+        var permission = access.RequireDataMutation("import contacts");
+        if (!permission.Ok)
+            return ServiceResult<PreparedImport>.Fail(permission.Message);
         if (user.UserId is not { } importingStaffId)
             return ServiceResult<PreparedImport>.Fail("Sign in again before importing contacts.");
 
@@ -245,7 +251,7 @@ public sealed class ContactImportService(
         return ServiceResult<PreparedImport>.Success(new PreparedImport(parsed.Columns, rows));
     }
 
-    private static async Task MarkDuplicatesAsync(ITenantUnitOfWork uow, List<PreparedRow> rows)
+    private async Task MarkDuplicatesAsync(ITenantUnitOfWork uow, List<PreparedRow> rows)
     {
         var candidates = rows.Where(row => row.Request is not null).ToList();
         var phoneValues = candidates.Where(row => row.Phone is not null).Select(row => row.Phone!).Distinct().ToArray();
@@ -256,6 +262,26 @@ public sealed class ContactImportService(
             var phones = phoneValues.Skip(offset).Take(700).ToArray();
             var emails = emailValues.Skip(offset).Take(700).ToArray();
             existing.AddRange(await uow.Contacts.FindMatchesAsync(phones, emails));
+        }
+
+        var readScope = access.GetDataReadScope("contacts");
+        if (!readScope.Ok)
+            return;
+        var visibleIds = new HashSet<Guid>();
+        if (readScope.Value.Kind == TenantDataScopeKind.Tenant)
+        {
+            foreach (var contact in existing)
+                visibleIds.Add(contact.Id);
+        }
+        else
+        {
+            for (var offset = 0; offset < Math.Max(phoneValues.Length, emailValues.Length); offset += 700)
+            {
+                var phones = phoneValues.Skip(offset).Take(700).ToArray();
+                var emails = emailValues.Skip(offset).Take(700).ToArray();
+                foreach (var contact in await uow.Contacts.FindMatchesAsync(phones, emails, readScope.Value))
+                    visibleIds.Add(contact.Id);
+            }
         }
 
         var byPhone = existing.Where(contact => contact.PhoneNormalized is not null)
@@ -273,7 +299,9 @@ public sealed class ContactImportService(
             {
                 if (byPhone.TryGetValue(row.Phone, out var matches))
                     foreach (var match in matches)
-                        AddTarget(targets, new DuplicateTarget(match.Id, null, match.FullName));
+                        AddTarget(targets, new DuplicateTarget(
+                            match.Id, null, CanReveal(match, visibleIds) ? match.FullName : null,
+                            access.IsAgentAssignedToAnotherStaff(match.AssignedStaffId)));
                 if (identityTargets.TryGetValue("phone:" + row.Phone, out var priorPhone))
                     targets[priorPhone.Key] = priorPhone;
             }
@@ -281,14 +309,19 @@ public sealed class ContactImportService(
             {
                 if (byEmail.TryGetValue(row.Email, out var matches))
                     foreach (var match in matches)
-                        AddTarget(targets, new DuplicateTarget(match.Id, null, match.FullName));
+                        AddTarget(targets, new DuplicateTarget(
+                            match.Id, null, CanReveal(match, visibleIds) ? match.FullName : null,
+                            access.IsAgentAssignedToAnotherStaff(match.AssignedStaffId)));
                 if (identityTargets.TryGetValue("email:" + row.Email, out var priorEmail))
                     targets[priorEmail.Key] = priorEmail;
             }
 
             if (targets.Count > 1)
             {
-                row.Display = Invalid(row.Display, "The phone and email match different contacts.");
+                var reason = targets.Values.Any(target => target.AssignedToAnotherAgent)
+                    ? "A contact already exists and is assigned to another agent."
+                    : "The phone and email match different contacts.";
+                row.Display = Invalid(row.Display, reason);
                 row.Request = null;
                 continue;
             }
@@ -296,7 +329,7 @@ public sealed class ContactImportService(
             var target = targets.Values.FirstOrDefault();
             if (target is null)
             {
-                target = new DuplicateTarget(null, row.Display.RowNumber, row.Display.Name);
+                target = new DuplicateTarget(null, row.Display.RowNumber, row.Display.Name, false);
                 row.Display = row.Display with { WillCreateLead = row.ParcelId is not null };
             }
             else
@@ -306,7 +339,11 @@ public sealed class ContactImportService(
                     Status = ContactImportRowStatus.Duplicate,
                     Reason = target.RowNumber is { } duplicateOf
                         ? $"Duplicate of CSV row {duplicateOf}."
-                        : $"Matches existing contact {target.Name}.",
+                        : target.Name is null
+                            ? target.AssignedToAnotherAgent
+                                ? "A contact already exists and is assigned to another agent."
+                                : "A contact already exists."
+                            : $"Matches existing contact {target.Name}.",
                     DuplicateOfRow = target.RowNumber,
                     WillCreateLead = false
                 };
@@ -415,12 +452,15 @@ public sealed class ContactImportService(
     private static void AddTarget(Dictionary<string, DuplicateTarget> targets, DuplicateTarget target) =>
         targets[target.Key] = target;
 
+    private bool CanReveal(Contact contact, ISet<Guid> visibleIds) =>
+        visibleIds.Contains(contact.Id) && !access.IsAgentAssignedToAnotherStaff(contact.AssignedStaffId);
+
     private static string AppendWarning(string? current, string warning) =>
         string.IsNullOrWhiteSpace(current) ? warning : current + " " + warning;
 
     private sealed record ParsedCsv(IReadOnlyList<ImportCsvColumn> Columns, IReadOnlyList<string[]> Rows);
     private sealed record PreparedImport(IReadOnlyList<ImportCsvColumn> Columns, List<PreparedRow> Rows);
-    private sealed record DuplicateTarget(Guid? ContactId, int? RowNumber, string Name)
+    private sealed record DuplicateTarget(Guid? ContactId, int? RowNumber, string? Name, bool AssignedToAnotherAgent)
     {
         public string Key => ContactId?.ToString("N") ?? $"row:{RowNumber}";
     }

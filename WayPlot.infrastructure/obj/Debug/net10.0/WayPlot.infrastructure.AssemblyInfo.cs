@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("WayPlot.infrastructure")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+4236a03f04d7774967397c7b37d8244131a11477")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+d2cba54c2dc6b3d20988572e883c1a78818dd46d")]
 [assembly: System.Reflection.AssemblyProductAttribute("WayPlot.infrastructure")]
 [assembly: System.Reflection.AssemblyTitleAttribute("WayPlot.infrastructure")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

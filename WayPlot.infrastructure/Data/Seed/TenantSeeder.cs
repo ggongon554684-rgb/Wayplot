@@ -113,7 +113,10 @@ public sealed class TenantSeeder(
         if (userSession.Tier == Tier.C)
             await EnsureTierCBranchesAsync();
 
-        if ((await parcelService.ListAsync()).Count > 0)
+        var parcels = await parcelService.ListAsync();
+        if (!parcels.Ok || parcels.Value is null)
+            return RuleResult.Fail(parcels.Message);
+        if (parcels.Value.Count > 0)
             return RuleResult.Success("Demo data skipped: this tenant already has parcels.");
 
         try

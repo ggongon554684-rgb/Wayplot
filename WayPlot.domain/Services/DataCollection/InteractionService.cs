@@ -12,12 +12,17 @@ public sealed class InteractionService(
     ITenantUnitOfWorkFactory uowFactory,
     IDomainEventDispatcher events,
     ICurrentUser user,
-    IClock clock)
+    IClock clock,
+    TenantAccessPolicy access)
 {
     private const int MaxNoteLength = 2000;
 
     public async Task<ServiceResult<InteractionListItem>> LogAsync(LogInteractionRequest request)
     {
+        var permission = access.RequireDataMutation("log interactions");
+        if (!permission.Ok)
+            return ServiceResult<InteractionListItem>.Fail(permission.Message);
+
         var note = request.Note?.Trim() ?? string.Empty;
         if (note.Length == 0)
             return ServiceResult<InteractionListItem>.Fail("Enter a note for the interaction.");
@@ -49,6 +54,9 @@ public sealed class InteractionService(
         var lead = await uow.Leads.GetAsync(request.LeadId);
         if (lead is null)
             return ServiceResult<InteractionListItem>.Fail("That lead was not found.");
+        var leadPermission = access.RequireLeadMutation(lead, "log an interaction on this lead");
+        if (!leadPermission.Ok)
+            return ServiceResult<InteractionListItem>.Fail(leadPermission.Message);
         if (lead.Stage is LeadStage.Closed or LeadStage.Lost)
             return ServiceResult<InteractionListItem>.Fail("This lead is already finished.");
 
@@ -81,8 +89,12 @@ public sealed class InteractionService(
     public async Task<ServiceResult<IReadOnlyList<InteractionListItem>>> ListAsync(
         Guid? leadId, InteractionType? type)
     {
+        var scope = access.GetDataReadScope("interactions");
+        if (!scope.Ok)
+            return ServiceResult<IReadOnlyList<InteractionListItem>>.Fail(scope.Message);
+
         await using var uow = uowFactory.Create();
-        var found = await uow.Interactions.ListAsync(leadId, type);
+        var found = await uow.Interactions.ListAsync(leadId, type, scope.Value);
         IReadOnlyList<InteractionListItem> items = found.Select(ToListItem).ToList();
         return ServiceResult<IReadOnlyList<InteractionListItem>>.Success(items);
     }
