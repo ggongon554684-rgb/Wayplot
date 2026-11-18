@@ -30,13 +30,13 @@ public partial class LogInteractionDialog : Form
 
         cboType.SelectedIndexChanged += (_, _) => UpdateInteractionFields();
         txtLeadSearch.TextChanged += (_, _) => { searchTimer.Stop(); searchTimer.Start(); };
-        searchTimer.Tick += async (_, _) =>
+        searchTimer.Tick += (_, _) => AsyncUiEvent.Run(this, async () =>
         {
             searchTimer.Stop();
             await LoadLeadsAsync();
-        };
-        btnSave.Click += async (_, _) => await SaveAsync();
-        Shown += async (_, _) => await InitializeLeadAsync();
+        }, "Could not search leads. Try again.");
+        btnSave.Click += (_, _) => AsyncUiEvent.Run(this, SaveAsync, "Could not save the interaction. Try again.");
+        Shown += (_, _) => AsyncUiEvent.Run(this, InitializeLeadAsync, "Could not load the lead. Try again.");
         FormClosed += (_, _) => searchTimer.Stop();
     }
 

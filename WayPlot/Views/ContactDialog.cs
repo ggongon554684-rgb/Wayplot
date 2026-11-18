@@ -32,7 +32,7 @@ public partial class ContactDialog : Form
 
         ApplyTheme();
         cboReferrerType.SelectedIndexChanged += (_, _) => UpdateReferrerControls();
-        btnSave.Click += async (_, _) => await SaveAsync();
+        btnSave.Click += (_, _) => AsyncUiEvent.Run(this, SaveAsync, "Could not save the contact. Try again.");
     }
 
     /// <summary>Set by the screen that opens the dialog. The Designer never saves it.</summary>
