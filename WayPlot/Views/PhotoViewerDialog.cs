@@ -22,24 +22,24 @@ public partial class PhotoViewerDialog : Form
         InitializeComponent();
         ApplyTheme();
 
-        btnPrevious.Click += async (_, _) =>
+        btnPrevious.Click += (_, _) => AsyncUiEvent.Run(this, async () =>
         {
             if (_index > 0)
             {
                 _index--;
                 await LoadCurrentPhotoAsync();
             }
-        };
-        btnNext.Click += async (_, _) =>
+        }, "Could not load the photo. Try again.");
+        btnNext.Click += (_, _) => AsyncUiEvent.Run(this, async () =>
         {
             if (_index < _photos.Count - 1)
             {
                 _index++;
                 await LoadCurrentPhotoAsync();
             }
-        };
+        }, "Could not load the photo. Try again.");
         btnClose.Click += (_, _) => Close();
-        Shown += async (_, _) => await LoadCurrentPhotoAsync();
+        Shown += (_, _) => AsyncUiEvent.Run(this, LoadCurrentPhotoAsync, "Could not load the photo. Try again.");
     }
 
     private void ApplyTheme()

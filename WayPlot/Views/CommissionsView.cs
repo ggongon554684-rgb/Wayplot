@@ -16,10 +16,16 @@ public partial class CommissionsView : UserControl, ICommissionsView
         InitializeComponent();
         ApplyTheme();
 
+<<<<<<< HEAD
         btnRules.Click += async (_, _) => await OpenRulesAsync();
         btnCompanyProfile.Click += async (_, _) => await OpenCompanyProfileAsync();
         btnApprove.Click += async (_, _) => await ApproveAsync();
         btnMarkPaid.Click += async (_, _) => await MarkPaidAsync();
+=======
+        btnRules.Click += (_, _) => AsyncUiEvent.Run(this, OpenRulesAsync, "Could not open commission rules. Try again.");
+        btnApprove.Click += (_, _) => AsyncUiEvent.Run(this, ApproveAsync, "Could not approve the payout. Try again.");
+        btnMarkPaid.Click += (_, _) => AsyncUiEvent.Run(this, MarkPaidAsync, "Could not mark the payout as paid. Try again.");
+>>>>>>> master
         listPayouts.SelectedIndexChanged += (_, _) => UpdateActions();
         listPayouts.Resize += (_, _) => FitColumns();
         FitColumns();
@@ -38,17 +44,30 @@ public partial class CommissionsView : UserControl, ICommissionsView
 
     protected override async void OnLoad(EventArgs e)
     {
+<<<<<<< HEAD
         base.OnLoad(e);
         if (DesignMode) return;
         UpdateActions();
         try
         {
+=======
+        try
+        {
+            base.OnLoad(e);
+            if (DesignMode) return;
+            UpdateActions();
+>>>>>>> master
             if (_presenter is not null)
                 await _presenter.LoadAsync();
         }
         catch (Exception)
         {
+<<<<<<< HEAD
             if (!IsDisposed) ShowStatus("Could not load commissions. Try again.", true);
+=======
+            if (!IsDisposed)
+                ShowStatus("Could not load commissions. Try again.", true);
+>>>>>>> master
         }
     }
 

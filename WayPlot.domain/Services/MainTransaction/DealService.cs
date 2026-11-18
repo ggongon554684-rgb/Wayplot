@@ -129,7 +129,10 @@ public sealed class DealService(
             catch (DealLifecycleConcurrencyConflictException)
             {
                 conflicts++;
+                continue;
             }
+
+            await events.DispatchAsync(new DealChanged(deal.Id, deal.ParcelId, deal.ContactId, clock.UtcNow));
         }
         return ServiceResult<bool>.Success(true, conflicts == 0
             ? "Deal statuses refreshed."

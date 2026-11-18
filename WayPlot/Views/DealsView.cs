@@ -16,15 +16,15 @@ public partial class DealsView : UserControl, IDealsView
         InitializeComponent();
         ApplyTheme();
 
-        btnRequestClosed.Click += async (_, _) => await RequestClosedAsync();
-        btnConfirmClosed.Click += async (_, _) => await ConfirmClosedAsync();
-        btnReturnRequest.Click += async (_, _) => await ReturnRequestAsync();
-        btnCancelDeal.Click += async (_, _) => await CancelDealAsync();
-        btnDefaultDeal.Click += async (_, _) => await DefaultDealAsync();
-        btnRecordPayment.Click += async (_, _) => await RecordPaymentAsync();
-        btnConfirmPayment.Click += async (_, _) => await ConfirmPaymentAsync();
-        btnReturnPayment.Click += async (_, _) => await ReturnPaymentAsync();
-        listDeals.SelectedIndexChanged += async (_, _) => await DealSelectionChangedAsync();
+        btnRequestClosed.Click += (_, _) => AsyncUiEvent.Run(this, RequestClosedAsync, "Could not submit the Closed request. Try again.");
+        btnConfirmClosed.Click += (_, _) => AsyncUiEvent.Run(this, ConfirmClosedAsync, "Could not confirm the deal. Try again.");
+        btnReturnRequest.Click += (_, _) => AsyncUiEvent.Run(this, ReturnRequestAsync, "Could not return the request. Try again.");
+        btnCancelDeal.Click += (_, _) => AsyncUiEvent.Run(this, CancelDealAsync, "Could not cancel the deal. Try again.");
+        btnDefaultDeal.Click += (_, _) => AsyncUiEvent.Run(this, DefaultDealAsync, "Could not default the deal. Try again.");
+        btnRecordPayment.Click += (_, _) => AsyncUiEvent.Run(this, RecordPaymentAsync, "Could not record the payment. Try again.");
+        btnConfirmPayment.Click += (_, _) => AsyncUiEvent.Run(this, ConfirmPaymentAsync, "Could not confirm the payment. Try again.");
+        btnReturnPayment.Click += (_, _) => AsyncUiEvent.Run(this, ReturnPaymentAsync, "Could not return the payment. Try again.");
+        listDeals.SelectedIndexChanged += (_, _) => AsyncUiEvent.Run(this, DealSelectionChangedAsync, "Could not load the deal. Try again.");
         listPayments.SelectedIndexChanged += (_, _) => UpdateActionButtons();
         listDeals.Resize += (_, _) => FitColumns();
         listPayments.Resize += (_, _) => FitPaymentColumns();
@@ -45,16 +45,24 @@ public partial class DealsView : UserControl, IDealsView
 
     protected override async void OnLoad(EventArgs e)
     {
-        base.OnLoad(e);
-        if (DesignMode) return;
-        if (_presenter is null)
+        try
         {
-            UpdateActionButtons();
-            return;
-        }
+            base.OnLoad(e);
+            if (DesignMode) return;
+            if (_presenter is null)
+            {
+                UpdateActionButtons();
+                return;
+            }
 
-        UpdateActionButtons();
-        await _presenter.LoadAsync();
+            UpdateActionButtons();
+            await _presenter.LoadAsync();
+        }
+        catch (Exception)
+        {
+            if (!IsDisposed)
+                ShowStatus("Could not load deals. Try again.", true);
+        }
     }
 
     private void ApplyTheme()

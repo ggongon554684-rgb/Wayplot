@@ -11,7 +11,7 @@ public partial class LeadCardControl : UserControl
     {
         InitializeComponent();
         ApplyTheme();
-        MouseDown += async (_, args) =>
+        MouseDown += (_, args) => AsyncUiEvent.Run(this, async () =>
         {
             if (args.Button == MouseButtons.Left && Card is not null && DragStarting is not null)
             {
@@ -19,7 +19,7 @@ public partial class LeadCardControl : UserControl
                     await DragStarting(Card);
                 DoDragDrop(Card.LeadId, DragDropEffects.Move);
             }
-        };
+        }, "Could not start the lead drag. Try again.");
         Click += (_, _) => Selected?.Invoke(Card);
     }
 

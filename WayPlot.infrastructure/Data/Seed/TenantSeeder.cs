@@ -21,7 +21,9 @@ public sealed class TenantSeeder(
     ITenantUnitOfWorkFactory uowFactory,
     ITenantDbContextFactory dbFactory,
     TenantSession session,
-    SessionContext userSession)
+    SessionContext userSession,
+    TenantAccessPolicy access,
+    Func<bool> isDevelopment)
 {
     // ---- Fixed demo data (hand-written, so every run is identical) ----
 
@@ -157,6 +159,13 @@ public sealed class TenantSeeder(
     /// <summary>Clears this tenant's data (Staff and Settings stay) and seeds again. Destructive: the UI must confirm first.</summary>
     public async Task<RuleResult> ResetDemoDataAsync(string? companyName)
     {
+        if (!isDevelopment())
+            return RuleResult.Fail("Demo data reset is available only in Development.");
+
+        var permission = access.RequireTenantAdmin("reset demo data");
+        if (!permission.Ok)
+            return RuleResult.Fail(permission.Message);
+
         if (!session.IsStarted)
             return RuleResult.Fail("Sign in first. The seeder needs an open tenant database.");
 

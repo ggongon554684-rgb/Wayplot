@@ -61,36 +61,36 @@ public partial class ParcelMapView : UserControl, IParcelMapView
 
         transientStatusTimer.Tick += (_, _) => ClearTransientStatus();
         listLeads.Resize += (_, _) => FitLeadColumns();
-        listLeads.ItemActivate += async (_, _) => await OpenLeadFileAsync();
+        listLeads.ItemActivate += (_, _) => AsyncUiEvent.Run(this, OpenLeadFileAsync, "Could not open the lead. Try again.");
         btnAttachLead.Click += (_, _) => AttachLead();
         btnNewParcel.Click += (_, _) => StartDraw();
         btnUndo.Click += (_, _) => _map.UndoVertex();
         btnFinish.Click += (_, _) => _map.FinishMode();
         btnCancel.Click += (_, _) => _map.CancelMode();
-        btnEditDetails.Click += async (_, _) => await EditDetailsAsync();
+        btnEditDetails.Click += (_, _) => AsyncUiEvent.Run(this, EditDetailsAsync, "Could not edit parcel details. Try again.");
         btnEditShape.Click += (_, _) => StartShapeEdit();
-        btnChangePrice.Click += async (_, _) => await ChangePriceAsync();
-        btnReassign.Click += async (_, _) => await ReassignAsync();
-        btnArchive.Click += async (_, _) => await ArchiveAsync();
-        btnAddPhotos.Click += async (_, _) => await AddPhotosAsync();
-        btnRemovePhoto.Click += async (_, _) => await RemovePhotoAsync();
-        btnClosePanel.Click += async (_, _) =>
+        btnChangePrice.Click += (_, _) => AsyncUiEvent.Run(this, ChangePriceAsync, "Could not change parcel price. Try again.");
+        btnReassign.Click += (_, _) => AsyncUiEvent.Run(this, ReassignAsync, "Could not reassign the parcel. Try again.");
+        btnArchive.Click += (_, _) => AsyncUiEvent.Run(this, ArchiveAsync, "Could not archive the parcel. Try again.");
+        btnAddPhotos.Click += (_, _) => AsyncUiEvent.Run(this, AddPhotosAsync, "Could not add parcel photos. Try again.");
+        btnRemovePhoto.Click += (_, _) => AsyncUiEvent.Run(this, RemovePhotoAsync, "Could not remove the photo. Try again.");
+        btnClosePanel.Click += (_, _) => AsyncUiEvent.Run(this, async () =>
         {
             if (_presenter is not null)
                 await _presenter.SelectAsync(null);
-        };
-        _map.ParcelClicked += async (_, args) =>
+        }, "Could not close the parcel panel. Try again.");
+        _map.ParcelClicked += (_, args) => AsyncUiEvent.Run(this, async () =>
         {
             if (_presenter is not null)
                 await _presenter.SelectAsync(args.ParcelId);
-        };
-        _map.MapBackgroundClicked += async (_, _) =>
+        }, "Could not select the parcel. Try again.");
+        _map.MapBackgroundClicked += (_, _) => AsyncUiEvent.Run(this, async () =>
         {
             if (_presenter is not null)
                 await _presenter.SelectAsync(null);
-        };
-        _map.DrawComplete += async (_, args) => await HandleDrawCompleteAsync(args);
-        _map.GeometryEditComplete += async (_, args) => await HandleGeometryEditCompleteAsync(args);
+        }, "Could not clear the parcel selection. Try again.");
+        _map.DrawComplete += (_, args) => AsyncUiEvent.Run(this, () => HandleDrawCompleteAsync(args), "Could not save the parcel boundary. Try again.");
+        _map.GeometryEditComplete += (_, args) => AsyncUiEvent.Run(this, () => HandleGeometryEditCompleteAsync(args), "Could not save the parcel boundary. Try again.");
         _map.ModeStateChanged += (_, args) =>
         {
             _mapMode = args.Mode;
@@ -124,19 +124,27 @@ public partial class ParcelMapView : UserControl, IParcelMapView
 
     protected override async void OnLoad(EventArgs e)
     {
-        base.OnLoad(e);
-        LoadInspectorWidth();
-        UpdateAttachAction();
-        UpdateParcelActions();
-        UpdateMapActions();
-        if (_presenter is not null && !DesignMode)
+        try
         {
-            await _presenter.LoadAsync();
-            if (_pendingParcelId is { } parcelId)
+            base.OnLoad(e);
+            LoadInspectorWidth();
+            UpdateAttachAction();
+            UpdateParcelActions();
+            UpdateMapActions();
+            if (_presenter is not null && !DesignMode)
             {
-                _pendingParcelId = null;
-                await _presenter.SelectAsync(parcelId);
+                await _presenter.LoadAsync();
+                if (_pendingParcelId is { } parcelId)
+                {
+                    _pendingParcelId = null;
+                    await _presenter.SelectAsync(parcelId);
+                }
             }
+        }
+        catch (Exception)
+        {
+            if (!IsDisposed)
+                ShowTransientStatus("Could not load parcels. Try again.");
         }
     }
 
@@ -517,7 +525,7 @@ public partial class ParcelMapView : UserControl, IParcelMapView
             };
             _photoToolTip.SetToolTip(picture, $"{photo.FileName} ({photo.SizeBytes:N0} bytes)");
             picture.Click += (_, _) => SelectPhoto(picture);
-            picture.DoubleClick += async (_, _) => await OpenPhotoViewerAsync(photo.Id);
+            picture.DoubleClick += (_, _) => AsyncUiEvent.Run(this, () => OpenPhotoViewerAsync(photo.Id), "Could not open the photo. Try again.");
             flowPhotos.Controls.Add(picture);
         }
         UpdatePhotoActions();

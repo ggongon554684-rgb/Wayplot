@@ -24,7 +24,7 @@ public partial class CreateDealDialog : Form
         cboPaymentPlan.SelectedIndexChanged += (_, _) => UpdatePlanFields();
         cboPaymentPlan.Items.AddRange(["Full payment", "Installment plan"]);
         cboPaymentPlan.SelectedIndex = 0;
-        btnSave.Click += async (_, _) => await SaveAsync();
+        btnSave.Click += (_, _) => AsyncUiEvent.Run(this, SaveAsync, "Could not save the deal. Try again.");
     }
 
     [Browsable(false)]

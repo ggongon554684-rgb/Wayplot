@@ -24,6 +24,7 @@ internal static class Program
         });
         var apiUrl = builder.Configuration["Api:BaseUrl"] ?? "http://localhost:5039";
         var serverName = builder.Configuration["Tenancy:ServerName"] ?? "(localdb)\\MSSQLLocalDB";
+        builder.Services.AddSingleton<Func<bool>>(_ => () => builder.Environment.IsDevelopment());
         var mapTileOptions = new MapTileOptions(
             builder.Configuration["MapTiles:TileUrlTemplate"] ?? MapTileOptions.Default.TileUrlTemplate,
             builder.Configuration["MapTiles:Attribution"] ?? MapTileOptions.Default.Attribution);

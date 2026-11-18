@@ -22,7 +22,7 @@ public partial class RecordPaymentDialog : Form
         foreach (var method in Methods)
             cboMethod.Items.Add(EnumText.Pretty(method));
         cboMethod.SelectedIndex = 0;
-        btnSave.Click += async (_, _) => await SaveAsync();
+        btnSave.Click += (_, _) => AsyncUiEvent.Run(this, SaveAsync, "Could not save the payment. Try again.");
     }
 
     [Browsable(false)]

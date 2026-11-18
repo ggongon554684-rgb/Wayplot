@@ -29,7 +29,7 @@ public partial class CommissionRulesDialog : Form
             cboPayableTiming.Items.Add(EnumText.Pretty(timing));
 
         ApplyTheme();
-        btnSave.Click += async (_, _) => await SaveAsync();
+        btnSave.Click += (_, _) => AsyncUiEvent.Run(this, SaveAsync, "Could not save commission rules. Try again.");
     }
 
     [Browsable(false)]

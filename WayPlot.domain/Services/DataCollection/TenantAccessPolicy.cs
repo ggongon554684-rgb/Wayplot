@@ -66,6 +66,18 @@ public sealed class TenantAccessPolicy(ICurrentUser user)
         });
     }
 
+    public RuleResult RequireTenantAdmin(string action)
+    {
+        if (user.Role == Roles.TenantAdmin)
+            return user.UserId is not null
+                ? RuleResult.Success()
+                : RuleResult.Fail($"Cannot {action}: your staff account could not be identified. Sign in again.");
+
+        return RuleResult.Fail(user.Role == Roles.SuperAdmin
+            ? $"Cannot {action}: Super Admin cannot access tenant records."
+            : $"Cannot {action}: only a Tenant Admin can do this.");
+    }
+
     public RuleResult RequireLeadMutation(Lead lead, string action)
     {
         var mutation = RequireDataMutation(action);
