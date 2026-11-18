@@ -16,22 +16,22 @@ public partial class AttachLeadDialog : Form
         _searchTimer = new System.Windows.Forms.Timer(components!) { Interval = 350 };
         ApplyTheme();
 
-        btnSearch.Click += async (_, _) => await SearchAsync();
-        btnAttach.Click += async (_, _) => await AttachAsync();
+        btnSearch.Click += (_, _) => _ = RunHandlerAsync(SearchAsync, "Could not search contacts. Try again.");
+        btnAttach.Click += (_, _) => _ = RunHandlerAsync(AttachAsync, "Could not attach the contact. Try again.");
         txtSearch.TextChanged += (_, _) => { _searchTimer.Stop(); _searchTimer.Start(); };
-        txtSearch.KeyDown += async (_, e) =>
+        txtSearch.KeyDown += (_, e) =>
         {
             if (e.KeyCode != Keys.Enter) return;
             e.SuppressKeyPress = true;
             _searchTimer.Stop();
-            await SearchAsync();
+            _ = RunHandlerAsync(SearchAsync, "Could not search contacts. Try again.");
         };
-        _searchTimer.Tick += async (_, _) =>
+        _searchTimer.Tick += (_, _) =>
         {
             _searchTimer.Stop();
-            await SearchAsync();
+            _ = RunHandlerAsync(SearchAsync, "Could not search contacts. Try again.");
         };
-        Shown += async (_, _) => await SearchAsync();
+        Shown += (_, _) => _ = RunHandlerAsync(SearchAsync, "Could not search contacts. Try again.");
         listContacts.Resize += (_, _) => FitColumns();
     }
 
@@ -116,6 +116,19 @@ public partial class AttachLeadDialog : Form
         finally
         {
             if (!IsDisposed) btnAttach.Enabled = true;
+        }
+    }
+
+    private async Task RunHandlerAsync(Func<Task> action, string failureMessage)
+    {
+        try
+        {
+            await action();
+        }
+        catch (Exception)
+        {
+            if (!IsDisposed)
+                ShowStatus(failureMessage, true);
         }
     }
 

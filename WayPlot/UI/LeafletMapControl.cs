@@ -164,6 +164,10 @@ public partial class LeafletMapControl : UserControl, IParcelMapControl
         {
             ShowUnavailable($"The parcel map files could not be loaded. {ex.Message}");
         }
+        catch (Exception)
+        {
+            ShowUnavailable("The parcel map could not start. Try again.");
+        }
     }
 
     private void ConfigureCoreWebView()

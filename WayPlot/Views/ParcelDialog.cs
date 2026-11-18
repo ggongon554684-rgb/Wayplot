@@ -38,7 +38,7 @@ public partial class ParcelDialog : Form
 
         btnSave.Click += (_, _) => SaveParcel();
         btnCancel.Click += (_, _) => Close();
-        btnNewOwner.Click += async (_, _) => await CreateOwnerAsync();
+        btnNewOwner.Click += (_, _) => AsyncUiEvent.Run(this, CreateOwnerAsync, "Could not create the owner. Try again.");
     }
 
     [Browsable(false)]

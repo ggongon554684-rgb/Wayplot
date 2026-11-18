@@ -17,8 +17,8 @@ public partial class LeadFileDialog : Form
         InitializeComponent();
         ApplyTheme();
 
-        btnMoveStage.Click += async (_, _) => await MoveStageAsync();
-        btnLogInteraction.Click += async (_, _) => await LogInteractionAsync();
+        btnMoveStage.Click += (_, _) => AsyncUiEvent.Run(this, MoveStageAsync, "Could not move the lead. Try again.");
+        btnLogInteraction.Click += (_, _) => AsyncUiEvent.Run(this, LogInteractionAsync, "Could not log the interaction. Try again.");
         btnClose.Click += (_, _) => Close();
         ShowFile(_file);
     }

@@ -12,7 +12,7 @@ public partial class ReturnPaymentDialog : Form
     {
         InitializeComponent();
         ApplyTheme();
-        btnSave.Click += async (_, _) => await SaveAsync();
+        btnSave.Click += (_, _) => AsyncUiEvent.Run(this, SaveAsync, "Could not return the payment. Try again.");
     }
 
     [Browsable(false)]

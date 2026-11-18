@@ -22,8 +22,8 @@ public partial class ContactImportDialog : Form
         ApplyTheme();
 
         btnBrowse.Click += (_, _) => ChooseCsv();
-        btnPreview.Click += async (_, _) => await PreviewAsync();
-        btnConfirm.Click += async (_, _) => await ImportAsync();
+        btnPreview.Click += (_, _) => AsyncUiEvent.Run(this, PreviewAsync, "Could not preview the import. Try again.");
+        btnConfirm.Click += (_, _) => AsyncUiEvent.Run(this, ImportAsync, "Could not import contacts. Try again.");
         btnDownloadRejected.Click += (_, _) => DownloadRejected();
         btnClose.Click += (_, _) => CloseDialog();
         listRows.Resize += (_, _) => FitColumns();

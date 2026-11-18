@@ -33,28 +33,28 @@ public partial class ContactsView : UserControl, IContactsView
             searchTimer.Stop();
             searchTimer.Start();
         };
-        searchTimer.Tick += async (_, _) =>
+        searchTimer.Tick += (_, _) => AsyncUiEvent.Run(this, async () =>
         {
             searchTimer.Stop();
             if (_presenter is not null)
                 await _presenter.LoadAsync(txtSearch.Text);
-        };
+        }, "Could not refresh contacts. Try again.");
 
-        btnKindAll.Click += async (_, _) => await SetKindAsync(null);
-        btnKindCustomers.Click += async (_, _) => await SetKindAsync(PersonKind.Customer);
-        btnKindClients.Click += async (_, _) => await SetKindAsync(PersonKind.Client);
-        btnKindLandowners.Click += async (_, _) => await SetKindAsync(PersonKind.Landowner);
-        cboAgent.SelectedIndexChanged += async (_, _) =>
+        btnKindAll.Click += (_, _) => AsyncUiEvent.Run(this, () => SetKindAsync(null), "Could not filter contacts. Try again.");
+        btnKindCustomers.Click += (_, _) => AsyncUiEvent.Run(this, () => SetKindAsync(PersonKind.Customer), "Could not filter contacts. Try again.");
+        btnKindClients.Click += (_, _) => AsyncUiEvent.Run(this, () => SetKindAsync(PersonKind.Client), "Could not filter contacts. Try again.");
+        btnKindLandowners.Click += (_, _) => AsyncUiEvent.Run(this, () => SetKindAsync(PersonKind.Landowner), "Could not filter contacts. Try again.");
+        cboAgent.SelectedIndexChanged += (_, _) => AsyncUiEvent.Run(this, async () =>
         {
             if (_presenter is null) return;
             _presenter.SetAgentFilter(cboAgent.SelectedItem is StaffListItem staff && staff.Id != Guid.Empty
                 ? staff.Id : null);
             await _presenter.LoadAsync(txtSearch.Text);
-        };
-        btnNew.Click += async (_, _) => await NewContactAsync();
-        btnImport.Click += async (_, _) => await ImportCsvAsync();
+        }, "Could not filter contacts. Try again.");
+        btnNew.Click += (_, _) => AsyncUiEvent.Run(this, NewContactAsync, "Could not open the contact form. Try again.");
+        btnImport.Click += (_, _) => AsyncUiEvent.Run(this, ImportCsvAsync, "Could not import contacts. Try again.");
         btnCloseDetail.Click += (_, _) => CloseDetail();
-        listContacts.SelectedIndexChanged += async (_, _) => await SelectPersonAsync();
+        listContacts.SelectedIndexChanged += (_, _) => AsyncUiEvent.Run(this, SelectPersonAsync, "Could not load the selected contact. Try again.");
         listContacts.Resize += (_, _) => FitColumns();
         splitMain.SplitterMoved += (_, _) => SaveDetailWidth();
 
@@ -83,43 +83,37 @@ public partial class ContactsView : UserControl, IContactsView
 
     protected override async void OnLoad(EventArgs e)
     {
-        base.OnLoad(e);
-        LoadDetailWidth();
-        UpdateImportAction();
-        if (_presenter is not null && !DesignMode)
+        try
         {
-            await LoadAgentsAsync();
-            await _presenter.RefreshDealStatusesAsync();
-            if (ShowContactSelection is { } contactId)
+            base.OnLoad(e);
+            LoadDetailWidth();
+            UpdateImportAction();
+            if (_presenter is not null && !DesignMode)
             {
-                _kinds = new HashSet<PersonKind>();
-                if (_presenter is not null)
-                    _presenter.SetKindFilter(_kinds);
-                ApplyKindSelection(null);
-            }
-            await _presenter!.LoadAsync();
-            if (ShowContactSelection is { } pendingId)
-            {
-                var person = _people.FirstOrDefault(item => item.Id == pendingId);
-                if (person is not null)
+                await LoadAgentsAsync();
+                await _presenter.RefreshDealStatusesAsync();
+                if (ShowContactSelection is { } contactId)
                 {
-                    foreach (ListViewItem item in listContacts.Items)
+                    _kinds = new HashSet<PersonKind>();
+                    _presenter.SetKindFilter(_kinds);
+                    ApplyKindSelection(null);
+                }
+                await _presenter.LoadAsync();
+                if (ShowContactSelection is { } pendingId)
+                {
+                    var person = _people.FirstOrDefault(item => item.Id == pendingId);
+                    if (person is null)
                     {
-                        if (item.Tag is Guid id && id == pendingId)
+                        var contact = await _presenter.GetContactAsync(pendingId);
+                        if (contact.Ok && contact.Value is not null)
                         {
-                            item.Selected = true;
-                            item.EnsureVisible();
-                            break;
+                            txtSearch.Text = contact.Value.FullName;
+                            await _presenter.LoadAsync(contact.Value.FullName);
+                            person = _people.FirstOrDefault(item => item.Id == pendingId);
                         }
                     }
-                }
-                else
-                {
-                    var contact = await _presenter!.GetContactAsync(pendingId);
-                    if (contact.Ok && contact.Value is not null)
+                    if (person is not null)
                     {
-                        txtSearch.Text = contact.Value.FullName;
-                        await _presenter.LoadAsync(contact.Value.FullName);
                         foreach (ListViewItem item in listContacts.Items)
                         {
                             if (item.Tag is Guid id && id == pendingId)
@@ -130,9 +124,14 @@ public partial class ContactsView : UserControl, IContactsView
                             }
                         }
                     }
+                    ShowContactSelection = null;
                 }
-                ShowContactSelection = null;
             }
+        }
+        catch (Exception)
+        {
+            if (!IsDisposed)
+                ShowStatus("Could not load contacts. Try again.", true);
         }
     }
 
@@ -387,7 +386,7 @@ public partial class ContactsView : UserControl, IContactsView
                 foreach (var lead in leads.Value)
                     AddLeadCard(person, lead);
             }
-            AddMutationButton("Add lead", async () => await AddLeadAsync(person), true);
+            AddMutationButton("Add lead", () => AddLeadAsync(person), true);
         }
         else
         {
@@ -658,7 +657,7 @@ public partial class ContactsView : UserControl, IContactsView
                 AutoSize = true
             };
             ButtonStyle.Apply(switchButton, false);
-            switchButton.Click += async (_, _) => await SwitchLotAsync(person, lead);
+            switchButton.Click += (_, _) => AsyncUiEvent.Run(this, () => SwitchLotAsync(person, lead), "Could not switch the lead's lot. Try again.");
             card.Controls.Add(switchButton);
 
             var requestClosed = new Button
@@ -693,7 +692,7 @@ public partial class ContactsView : UserControl, IContactsView
         actionToolTip.SetToolTip(button, option.Allowed ? "Request Closed" : option.Reason);
         if (option.Allowed)
         {
-            button.Click += async (_, _) => await RequestClosedAsync(leadId);
+            button.Click += (_, _) => AsyncUiEvent.Run(this, () => RequestClosedAsync(leadId), "Could not request Closed. Try again.");
         }
     }
 
@@ -751,7 +750,7 @@ public partial class ContactsView : UserControl, IContactsView
         if (_presenter.CanAddOrSwitchLeads)
         {
             ButtonStyle.Apply(button, primary);
-            button.Click += async (_, _) => await action();
+            button.Click += (_, _) => AsyncUiEvent.Run(this, action, "Could not complete the contact action. Try again.");
         }
         else
         {
