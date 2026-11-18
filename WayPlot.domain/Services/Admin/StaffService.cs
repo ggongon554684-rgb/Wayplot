@@ -111,46 +111,79 @@ public sealed class StaffService(
             return ServiceResult<bool>.Fail(permission.Message);
 
         await using var uow = uowFactory.Create();
-        var member = await uow.Staff.GetAsync(staffId);
-        if (member is null)
+        var initialMember = await uow.Staff.GetAsync(staffId);
+        if (initialMember is null)
             return ServiceResult<bool>.Fail("That staff account was not found.");
-        if (member.Version != expectedVersion)
-            return ServiceResult<bool>.Fail("The staff account changed concurrently. Reload and try again.");
-        if (member.IsActive == isActive)
-            return ServiceResult<bool>.Success(true, isActive
-                ? "The staff account is already active."
-                : "The staff account is already inactive.");
-        if (!isActive && member.Id == user.UserId)
-            return ServiceResult<bool>.Fail("You cannot deactivate your own account.");
-        if (!isActive && member.Role == Roles.TenantAdmin
-            && await uow.Staff.CountActiveTenantAdminsAsync() <= 1)
-            return ServiceResult<bool>.Fail("The last active Tenant Admin cannot be deactivated.");
-
-        if (!isActive && member.Role == Roles.Agent)
-        {
-            var openLeads = (await uow.Leads.ListAsync(null, null, member.Id))
-                .Count(lead => lead.Stage is not (LeadStage.Closed or LeadStage.Lost));
-            var availableParcels = (await uow.Parcels.ListAsync())
-                .Count(parcel => parcel.AssignedStaffId == member.Id
-                    && parcel.Status == ParcelStatus.Available);
-            if (openLeads > 0 || availableParcels > 0)
-                return ServiceResult<bool>.Fail(
-                    $"Reassign this Agent's work first: {openLeads} open lead(s) and {availableParcels} available parcel(s). Use Reassign.");
-        }
-
-        member.IsActive = isActive;
+        var isolationLevel = !isActive && initialMember.Role == Roles.TenantAdmin
+            ? System.Data.IsolationLevel.Serializable
+            : System.Data.IsolationLevel.ReadCommitted;
+        ServiceResult<bool> outcome = ServiceResult<bool>.Fail("The staff account could not be changed.");
+        var changed = false;
         try
         {
-            await uow.ExecuteInTransactionAsync(async () => await uow.SaveAsync());
+            await uow.ExecuteInTransactionAsync(async () =>
+            {
+                var member = await uow.Staff.GetAsync(staffId);
+                if (member is null)
+                {
+                    outcome = ServiceResult<bool>.Fail("That staff account was not found.");
+                    return;
+                }
+                if (member.Version != expectedVersion)
+                {
+                    outcome = ServiceResult<bool>.Fail("The staff account changed concurrently. Reload and try again.");
+                    return;
+                }
+                if (member.IsActive == isActive)
+                {
+                    outcome = ServiceResult<bool>.Success(true, isActive
+                        ? "The staff account is already active."
+                        : "The staff account is already inactive.");
+                    return;
+                }
+                if (!isActive && member.Id == user.UserId)
+                {
+                    outcome = ServiceResult<bool>.Fail("You cannot deactivate your own account.");
+                    return;
+                }
+                if (!isActive && member.Role == Roles.TenantAdmin
+                    && await uow.Staff.CountActiveTenantAdminsAsync() <= 1)
+                {
+                    outcome = ServiceResult<bool>.Fail("The last active Tenant Admin cannot be deactivated.");
+                    return;
+                }
+
+                if (!isActive && member.Role == Roles.Agent)
+                {
+                    var openLeads = (await uow.Leads.ListAsync(null, null, member.Id))
+                        .Count(lead => lead.Stage is not (LeadStage.Closed or LeadStage.Lost));
+                    var availableParcels = (await uow.Parcels.ListAsync())
+                        .Count(parcel => parcel.AssignedStaffId == member.Id
+                            && parcel.Status == ParcelStatus.Available);
+                    if (openLeads > 0 || availableParcels > 0)
+                    {
+                        outcome = ServiceResult<bool>.Fail(
+                            $"Reassign this Agent's work first: {openLeads} open lead(s) and {availableParcels} available parcel(s). Use Reassign.");
+                        return;
+                    }
+                }
+
+                member.IsActive = isActive;
+                await uow.SaveAsync();
+                changed = true;
+                outcome = ServiceResult<bool>.Success(true,
+                    isActive ? "Staff account reactivated." : "Staff account deactivated.");
+            }, isolationLevel);
         }
         catch (StaffConcurrencyConflictException)
         {
             return ServiceResult<bool>.Fail("The staff account changed concurrently. Reload and try again.");
         }
-        await events.DispatchAsync(new StaffChanged(member.Id, clock.UtcNow));
-        return ServiceResult<bool>.Success(true, isActive ? "Staff account reactivated." : "Staff account deactivated.");
-    }
 
+        if (changed)
+            await events.DispatchAsync(new StaffChanged(staffId, clock.UtcNow));
+        return outcome;
+    }
     private RuleResult RequireTenantAdmin(string action)
     {
         var permission = access.RequireDataMutation(action);

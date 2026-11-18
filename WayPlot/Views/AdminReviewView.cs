@@ -23,16 +23,16 @@ public partial class AdminReviewView : UserControl
     {
         InitializeComponent();
         ApplyTheme();
-        btnRefresh.Click += async (_, _) => await LoadAsync();
-        btnConfirmClosed.Click += async (_, _) => await ConfirmClosedAsync();
-        btnReturnClosed.Click += async (_, _) => await ReturnClosedAsync();
-        btnConfirmPayment.Click += async (_, _) => await ConfirmPaymentAsync();
-        btnReturnPayment.Click += async (_, _) => await ReturnPaymentAsync();
-        btnApprove.Click += async (_, _) => await ApproveAsync();
-        btnMarkPaid.Click += async (_, _) => await MarkPaidAsync();
+        btnRefresh.Click += (_, _) => AsyncUiEvent.Run(this, () => LoadAsync(), "Could not refresh the review queue. Try again.");
+        btnConfirmClosed.Click += (_, _) => AsyncUiEvent.Run(this, ConfirmClosedAsync, "Could not confirm the request. Try again.");
+        btnReturnClosed.Click += (_, _) => AsyncUiEvent.Run(this, ReturnClosedAsync, "Could not return the request. Try again.");
+        btnConfirmPayment.Click += (_, _) => AsyncUiEvent.Run(this, ConfirmPaymentAsync, "Could not confirm the payment. Try again.");
+        btnReturnPayment.Click += (_, _) => AsyncUiEvent.Run(this, ReturnPaymentAsync, "Could not return the payment. Try again.");
+        btnApprove.Click += (_, _) => AsyncUiEvent.Run(this, ApproveAsync, "Could not approve the payout. Try again.");
+        btnMarkPaid.Click += (_, _) => AsyncUiEvent.Run(this, MarkPaidAsync, "Could not mark the payout as paid. Try again.");
         listQueue.SelectedIndexChanged += (_, _) => SelectionChanged();
-        detailCard.ConfirmRequested = summary => { _ = ConfirmClosedAsync(); };
-        detailCard.ReturnRequested = summary => { _ = ReturnClosedAsync(); };
+        detailCard.ConfirmRequested = _ => AsyncUiEvent.Run(this, ConfirmClosedAsync, "Could not confirm the request. Try again.");
+        detailCard.ReturnRequested = _ => AsyncUiEvent.Run(this, ReturnClosedAsync, "Could not return the request. Try again.");
     }
 
     [Browsable(false)]
@@ -42,12 +42,11 @@ public partial class AdminReviewView : UserControl
         set => _presenter = value;
     }
 
-    protected override async void OnLoad(EventArgs e)
+    protected override void OnLoad(EventArgs e)
     {
         base.OnLoad(e);
         if (DesignMode || _presenter is null) return;
-        try { await LoadAsync(); }
-        catch (Exception) { ShowStatus("The review queue could not be loaded. Try again.", true); }
+        AsyncUiEvent.Run(this, () => LoadAsync(), "The review queue could not be loaded. Try again.");
     }
 
     private void ApplyTheme()

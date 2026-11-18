@@ -1,5 +1,6 @@
-﻿using Microsoft.Data.SqlClient;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using System.Data;
 using WayPlot.domain.Common;
 using WayPlot.domain.Entities;
 using WayPlot.domain.Repositories;
@@ -55,6 +56,10 @@ internal sealed class TenantUnitOfWork : ITenantUnitOfWork
         {
             return await _db.SaveChangesAsync();
         }
+        catch (DbUpdateConcurrencyException ex) when (ex.Entries.Any(entry => entry.Entity is Staff))
+        {
+            throw new StaffConcurrencyConflictException(ex);
+        }
         catch (DbUpdateConcurrencyException ex) when (ex.Entries.Any(entry => entry.Entity is Parcel or ParcelPhoto))
         {
             throw new ParcelConcurrencyConflictException(ex);
@@ -67,10 +72,6 @@ internal sealed class TenantUnitOfWork : ITenantUnitOfWork
         catch (DbUpdateConcurrencyException ex) when (ex.Entries.Any(entry => entry.Entity is Setting))
         {
             throw new SettingConcurrencyConflictException(ex);
-        }
-        catch (DbUpdateConcurrencyException ex) when (ex.Entries.Any(entry => entry.Entity is Staff))
-        {
-            throw new StaffConcurrencyConflictException(ex);
         }
         catch (DbUpdateException ex) when (
             ex.Entries.Any(entry => entry.Entity is Setting)
@@ -104,11 +105,28 @@ internal sealed class TenantUnitOfWork : ITenantUnitOfWork
         }
     }
 
-    public async Task ExecuteInTransactionAsync(Func<Task> operation)
+    public Task ExecuteInTransactionAsync(Func<Task> operation) =>
+        ExecuteInTransactionAsync(operation, IsolationLevel.ReadCommitted);
+
+    public async Task ExecuteInTransactionAsync(Func<Task> operation, IsolationLevel isolationLevel)
     {
-        await using var transaction = await _db.Database.BeginTransactionAsync();
-        await operation();
-        await transaction.CommitAsync();
+        try
+        {
+            await using var transaction = await _db.Database.BeginTransactionAsync(isolationLevel);
+            await operation();
+            await transaction.CommitAsync();
+        }
+        catch (DbUpdateException ex) when (
+            isolationLevel == IsolationLevel.Serializable
+            && ex.InnerException is SqlException sql
+            && sql.Number == 1205)
+        {
+            throw new StaffConcurrencyConflictException(ex);
+        }
+        catch (SqlException ex) when (isolationLevel == IsolationLevel.Serializable && ex.Number == 1205)
+        {
+            throw new StaffConcurrencyConflictException(ex);
+        }
     }
 
     public ValueTask DisposeAsync() => _db.DisposeAsync();

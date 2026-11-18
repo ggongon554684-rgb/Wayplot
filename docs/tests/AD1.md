@@ -22,7 +22,7 @@
 ## Review
 
 - [ ] One grouped list shows counts for Closed requests awaiting confirmation, payments awaiting confirmation, and Pending/Approved commissions and referral bonuses.
-- [ ] No cancel-request group is shown because the application has no cancel-request flow.
+- [ ] No cancellation review group is shown because the application has no admin review queue for cancellation requests.
 - [ ] Closed requests can be confirmed or returned; payments can be confirmed or returned; Pending payouts can be approved and Approved payouts can be marked Paid.
 - [ ] Confirmed/returned requests and payments leave their queue groups; Paid payouts leave the unpaid-payout group.
 
@@ -38,5 +38,5 @@
 ## Not covered by the current application surface
 
 - The repository has no document-generation or print flow to render the company profile on a generated document.
-- There is no cancel-request flow or cancellation review queue.
+- There is no admin review queue for cancellation requests; an Agent can return a deal request from Contacts.
 - Database-backed sign-in, concurrent multi-admin saves, Tier C reassignment, and profile persistence require a tenant database and were not exercised by the automated test suite.
