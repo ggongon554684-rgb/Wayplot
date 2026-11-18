@@ -168,9 +168,7 @@ public sealed class ContactService(
         var allDeals = await uow.Deals.ListAsync(
             scope.Value.Kind == TenantDataScopeKind.Agent ? scope.Value.StaffId : null,
             scope.Value.Kind == TenantDataScopeKind.Branch ? scope.Value.BranchId : null);
-        var parcels = await uow.Parcels.ListAsync();
-        if (scope.Value.Kind == TenantDataScopeKind.Branch)
-            parcels = parcels.Where(parcel => parcel.BranchId == scope.Value.BranchId).ToList();
+        var parcels = await uow.Parcels.ListVisibleToAsync(scope.Value);
 
         var staffIds = contacts.Where(contact => contact.AssignedStaffId is not null)
             .Select(contact => contact.AssignedStaffId!.Value)
@@ -182,12 +180,7 @@ public sealed class ContactService(
         var ownerParcelCounts = parcels
             .GroupBy(parcel => parcel.OwnerId)
             .ToDictionary(group => group.Key, group => group.Count());
-        var owners = await uow.Owners.ListAsync();
-        if (scope.Value.Kind == TenantDataScopeKind.Branch)
-        {
-            var ownerIds = parcels.Select(parcel => parcel.OwnerId).ToHashSet();
-            owners = owners.Where(owner => ownerIds.Contains(owner.Id)).ToList();
-        }
+        var owners = await uow.Owners.ListForVisibleParcelsAsync(scope.Value);
 
         var result = new List<PeopleListItemDto>();
         if (kinds.Count == 0 || kinds.Contains(PersonKind.Customer)

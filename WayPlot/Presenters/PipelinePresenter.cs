@@ -37,15 +37,23 @@ public sealed class PipelinePresenter(
         var ticket = ++_latest;
         if (view.IsDisposed) return;
         view.ShowStatus("Loading pipeline...", false);
-        var result = await leads.GetPipelineBoardAsync(filter);
-        if (ticket != _latest || view.IsDisposed) return;
-        if (!result.Ok || result.Value is null)
+        try
         {
-            view.ShowStatus(result.Message, true);
-            return;
+            var result = await leads.GetPipelineBoardAsync(filter);
+            if (ticket != _latest || view.IsDisposed) return;
+            if (!result.Ok || result.Value is null)
+            {
+                view.ShowStatus(result.Message, true);
+                return;
+            }
+            view.ShowBoard(result.Value);
+            view.ShowStatus("", false);
         }
-        view.ShowBoard(result.Value);
-        view.ShowStatus("", false);
+        catch (Exception)
+        {
+            if (ticket == _latest && !view.IsDisposed)
+                view.ShowStatus("Could not load the pipeline. Try again.", true);
+        }
     }
 
     public Task<ServiceResult<IReadOnlyList<LeadMoveOptionDto>>> AllowedMovesAsync(Guid leadId) =>

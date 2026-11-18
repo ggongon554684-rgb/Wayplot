@@ -4,6 +4,7 @@ using WayPlot.infrastructure.Tenancy;
 using WayPlot.UI;
 using WayPlot.Views;
 using WayPlot.domain.Services.MainTransaction;
+using Microsoft.Extensions.Logging;
 
 namespace WayPlot;
 
@@ -15,9 +16,10 @@ public partial class LoginForm : Form
     private readonly TenantSeeder _seeder;
     private readonly Func<LoginResult, MainShell> _shellFactory;
     private readonly DealService _dealService;
+    private readonly ILogger<LoginForm> _logger;
 
     public LoginForm(AuthClient auth, SessionStarter sessionStarter, TenantSeeder seeder,
-        Func<LoginResult, MainShell> shellFactory, DealService dealService)
+        Func<LoginResult, MainShell> shellFactory, DealService dealService, ILogger<LoginForm> logger)
     {
         InitializeComponent();
 
@@ -26,6 +28,7 @@ public partial class LoginForm : Form
         _seeder = seeder;
         _shellFactory = shellFactory;
         _dealService = dealService;
+        _logger = logger;
 
         ApplyTheme();
     }
@@ -76,7 +79,10 @@ public partial class LoginForm : Form
             _ = Task.Run(async () =>
             {
                 try { await _dealService.RefreshDealStatusesAsync(); }
-                catch { }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Could not refresh deal statuses after sign-in for tenant {TenantId}.", login.TenantId);
+                }
             });
 
             txtPass.Clear();

@@ -405,7 +405,8 @@ public sealed class CommissionService(
             var confirmed = deal.Payments
                 .Where(payment => payment.Status == PaymentStatus.Confirmed)
                 .Sum(payment => payment.Amount);
-            if (confirmed < deal.DownPayment)
+            var confirmedTowardDownPayment = Math.Max(0m, confirmed - deal.ReservationFee);
+            if (confirmedTowardDownPayment < deal.DownPayment)
                 return "Wait until confirmed payments reach the deal's down payment.";
         }
 
