@@ -110,3 +110,4 @@ C:\Users\gabny\source\repos\wayplot\WayPlot\obj\Debug\net10.0-windows\WayPlot.Vi
 C:\Users\gabny\source\repos\wayplot\WayPlot\obj\Debug\net10.0-windows\WayPlot.sourcelink.json
 C:\Users\gabny\source\repos\wayplot\WayPlot\obj\Debug\net10.0-windows\WayPlot.Views.LogInteractionDialog.resources
 C:\Users\gabny\source\repos\wayplot\WayPlot\obj\Debug\net10.0-windows\WayPlot.Views.LeadsView.resources
+C:\Users\gabny\source\repos\wayplot\WayPlot\obj\Debug\net10.0-windows\WayPlot.Views.AttachLeadDialog.resources

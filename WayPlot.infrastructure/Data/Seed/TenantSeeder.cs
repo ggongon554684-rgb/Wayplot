@@ -174,29 +174,7 @@ public sealed class TenantSeeder(
     private async Task EnsureTierCBranchesAsync()
     {
         await using var db = dbFactory.Create(session.ConnectionString);
-        var branches = await db.Branches.IgnoreQueryFilters().ToListAsync();
-
-        var mandaluyong = branches.SingleOrDefault(branch => branch.Name == "Mandaluyong");
-        if (mandaluyong is null)
-        {
-            mandaluyong = new WayPlot.domain.Entities.Branch { Name = "Mandaluyong" };
-            db.Branches.Add(mandaluyong);
-        }
-
-        var antipolo = branches.SingleOrDefault(branch => branch.Name == "Antipolo");
-        if (antipolo is null)
-            db.Branches.Add(new WayPlot.domain.Entities.Branch { Name = "Antipolo" });
-
-        await db.SaveChangesAsync();
-
-        var manager = await db.Staffs.FirstOrDefaultAsync(staff => staff.Username == "mgr.mandaluyong.c");
-        var ana = await db.Staffs.FirstOrDefaultAsync(staff => staff.Username == "ana.c");
-        if (manager is null || ana is null)
-            throw new SeedFailure("Tier C branches require mgr.mandaluyong.c and ana.c Staff rows before seeding.");
-
-        manager.BranchId = mandaluyong.Id;
-        ana.BranchId = mandaluyong.Id;
-        await db.SaveChangesAsync();
+        await TenantBranchProvisioner.EnsureTierCAsync(db);
     }
 
     private async Task<RuleResult> SeedCoreAsync(string? companyName)

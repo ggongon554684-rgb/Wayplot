@@ -47,9 +47,9 @@ namespace WayPlot.Views
             card.Controls.Add(layout);
             card.Dock = DockStyle.Fill;
             card.Location = new Point(0, 0);
-            card.Margin = new Padding(4, 4, 4, 4);
+            card.Margin = new Padding(4);
             card.Name = "card";
-            card.Padding = new Padding(30, 30, 30, 30);
+            card.Padding = new Padding(30);
             card.Radius = 24;
             card.Size = new Size(1375, 700);
             card.TabIndex = 0;
@@ -64,9 +64,9 @@ namespace WayPlot.Views
             layout.Controls.Add(listLeads, 0, 3);
             layout.Dock = DockStyle.Fill;
             layout.Location = new Point(30, 30);
-            layout.Margin = new Padding(4, 4, 4, 4);
+            layout.Margin = new Padding(4);
             layout.Name = "layout";
-            layout.Padding = new Padding(30, 30, 30, 30);
+            layout.Padding = new Padding(30);
             layout.RowCount = 4;
             layout.RowStyles.Add(new RowStyle());
             layout.RowStyles.Add(new RowStyle());
@@ -225,7 +225,7 @@ namespace WayPlot.Views
             AutoScaleDimensions = new SizeF(120F, 120F);
             AutoScaleMode = AutoScaleMode.Dpi;
             Controls.Add(card);
-            Margin = new Padding(4, 4, 4, 4);
+            Margin = new Padding(4);
             Name = "LeadsView";
             Size = new Size(1375, 700);
             card.ResumeLayout(false);

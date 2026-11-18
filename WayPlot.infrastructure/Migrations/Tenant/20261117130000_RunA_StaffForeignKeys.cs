@@ -1,10 +1,12 @@
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
+using WayPlot.infrastructure.Data;
 
 #nullable disable
 
 namespace WayPlot.infrastructure.Migrations.Tenant;
 
-[Migration("20261117130000_RunA_StaffForeignKeys")]
 public partial class RunA_StaffForeignKeys : Migration
 {
     protected override void Up(MigrationBuilder migrationBuilder)

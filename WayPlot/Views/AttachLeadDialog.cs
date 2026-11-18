@@ -135,4 +135,9 @@ public partial class AttachLeadDialog : Form
     }
 
     private static string Dash(string? text) => string.IsNullOrWhiteSpace(text) ? "—" : text;
+
+    private void txtSearch_TextChanged(object sender, EventArgs e)
+    {
+
+    }
 }

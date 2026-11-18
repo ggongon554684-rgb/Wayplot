@@ -15,12 +15,14 @@ if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
 
-    // Development only: create Master, seed demo logins, then create or update every tenant database.
+    // Development only: create Master and seed demo logins.
     var server = builder.Configuration["Tenancy:ServerName"] ?? "(localdb)\\MSSQLLocalDB";
     await MasterSeeder.SeedAsync(app.Services, server);
-    using var scope = app.Services.CreateScope();
-    await scope.ServiceProvider.GetRequiredService<TenantMigrator>().MigrateAllAsync();
 }
+
+// Every startup: migrate, provision staff, and ensure Tier C branches for every non-suspended tenant.
+using (var scope = app.Services.CreateScope())
+    await scope.ServiceProvider.GetRequiredService<TenantMigrator>().MigrateAllAsync();
 
 app.MapControllers();
 app.Run();

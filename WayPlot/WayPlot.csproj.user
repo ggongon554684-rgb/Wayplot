@@ -19,7 +19,16 @@
     <Compile Update="Views\AttachLeadDialog.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Update="Views\CommissionRulesDialog.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Update="Views\CommissionsView.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
     <Compile Update="Views\ContactDialog.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Update="Views\ContactImportDialog.cs">
       <SubType>Form</SubType>
     </Compile>
     <Compile Update="Views\ContactsView.cs">

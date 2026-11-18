@@ -36,3 +36,36 @@
 ### Super Admin
 
 - Verify the Commissions tab is absent and no tenant commissions or referral bonuses are displayed.
+
+## Run A — staff provisioning, branches, and integrity
+
+### Preflight and migration order
+
+- Run the read-only queries in `docs/sql/run_a_checks.sql` against Master and each tenant database; save the results without changing rows.
+- For an existing tenant database, verify the exact sequence: migrate through `20261117123239_RunA_StaffBranchesAndIntegrity`, provision tenant Staff rows from Master logins, then migrate through `20261117130000_RunA_StaffForeignKeys`.
+- Verify a fresh tenant follows the same sequence successfully: Part A creates the schema/branches structure, provisioning creates Staff rows, and Part B adds Staff actor foreign keys.
+- If Part B stops, verify the error names the table, column, and orphan count. Verify no orphan rows were deleted or rewritten.
+
+### Staff provisioning
+
+- Run provisioning twice and verify exactly one active Staff row per Master login whose `TenantId` matches the tenant, with `Id = UserId`, username, full name, and role populated.
+- Verify a soft-deleted or inactive matching Staff row is restored as the one active row, while duplicate Staff rows stop provisioning with a clear error.
+- Verify a login-time lazy upsert still creates a missing Staff row when provisioning was not run.
+- Verify `Staff.UserId` remains an application-level cross-database link and `AspNetUsers.BranchId` is not used.
+
+### Branches
+
+- In Tier C, verify exactly `Mandaluyong` and `Antipolo` are seeded idempotently.
+- Verify `mgr.mandaluyong.c` and `ana.c` have `Staff.BranchId` set to Mandaluyong.
+- Verify Tier A and Tier B tenant seeders do not create those branches.
+- Verify `SessionStarter` reads the branch only from tenant `Staff.BranchId`.
+- Create a new audited tenant record as a staff member and verify its inherited `BranchId` is the creator's Staff branch. Verify records created by a staff member without a branch remain nullable according to the current model.
+- Verify `Staff.BranchId` rejects a nonexistent branch and uses restricted delete behavior.
+
+### Integrity constraints and indexes
+
+- Verify multiple leads can enter `Negotiation` for one parcel.
+- Verify only one active, non-deleted deal can hold a parcel.
+- Attempt to save a Deal whose `ContactId` or `ParcelId` differs from its Lead and verify the composite FK rejects it.
+- Verify actor columns accept null where currently nullable, but reject non-null IDs that do not exist in `Staffs` after provisioning.
+- Verify indexes exist for lead assignment/parcel lookup, parcel assignment, commission recipient, contact assignment, deal agent lookup, and the composite lead/deal paths.

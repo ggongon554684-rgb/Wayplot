@@ -4,7 +4,6 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 namespace WayPlot.infrastructure.Migrations.Tenant;
 
-[Migration("20261117123239_RunA_StaffBranchesAndIntegrity")]
 public partial class RunA_StaffBranchesAndIntegrity : Migration
 {
     protected override void Up(MigrationBuilder migrationBuilder)

@@ -6,7 +6,7 @@ namespace WayPlot.infrastructure.Data.Seed;
 /// <summary>Reconciles the tenant Staff table with the tenant's Master logins.</summary>
 public static class TenantStaffProvisioner
 {
-    public static async Task ProvisionAsync(
+    public static async Task<int> ProvisionAsync(
         MasterDbContext master,
         TenantDbContext tenant,
         Guid tenantId,
@@ -64,5 +64,6 @@ public static class TenantStaffProvisioner
         }
 
         await tenant.SaveChangesAsync(ct);
+        return logins.Count;
     }
 }
