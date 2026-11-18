@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using WayPlot.domain.Common;
 using WayPlot.domain.Contracts;
 using WayPlot.domain.Entities;
@@ -20,6 +21,10 @@ public sealed class CommissionService(
     private const string RulesSettingKey = "deals.commission-rules";
     private const string CompanyRecipientRole = "Company";
     private const decimal MaximumAmount = 9999999999999999.99m;
+    private static readonly JsonSerializerOptions RuleJsonOptions = new()
+    {
+        Converters = { new JsonStringEnumConverter() }
+    };
 
     public async Task<ServiceResult<CommissionRulesSnapshot>> GetRulesAsync()
     {
@@ -52,6 +57,11 @@ public sealed class CommissionService(
         var setting = await uow.Settings.GetByKeyAsync(RulesSettingKey);
         if (!TryReadRules(setting, out var current))
             return ServiceResult<CommissionRulesSnapshot>.Fail("Commission rule history could not be read. No changes were made.");
+        if (request.ExpectedVersion != (current.Current?.Version ?? 0))
+            return ServiceResult<CommissionRulesSnapshot>.Fail("Commission rules changed concurrently. Reload and try again.");
+        var overrideValidation = await ValidateOverridesAsync(uow, request.Overrides);
+        if (overrideValidation is not null)
+            return ServiceResult<CommissionRulesSnapshot>.Fail(overrideValidation);
 
         var version = new CommissionRulesVersion(
             (current.Current?.Version ?? 0) + 1,
@@ -64,9 +74,10 @@ public sealed class CommissionService(
             request.BranchManagerSharePercent,
             request.ReferralType,
             request.ReferralAmount,
-            request.PayableTiming);
+            request.PayableTiming,
+            request.Overrides?.ToList() ?? []);
         var history = current.History.Append(version).ToList();
-        var value = JsonSerializer.Serialize(new RulesHistoryData(history));
+        var value = JsonSerializer.Serialize(new RulesHistoryData(history), RuleJsonOptions);
 
         if (setting is null)
         {
@@ -77,7 +88,15 @@ public sealed class CommissionService(
             setting.Value = value;
         }
 
-        await uow.SaveAsync();
+        try
+        {
+            await uow.ExecuteInTransactionAsync(async () => await uow.SaveAsync());
+        }
+        catch (SettingConcurrencyConflictException)
+        {
+            return ServiceResult<CommissionRulesSnapshot>.Fail("Commission rules changed concurrently. Reload and try again.");
+        }
+        await events.DispatchAsync(new TenantSettingChanged(RulesSettingKey, clock.UtcNow));
         return ServiceResult<CommissionRulesSnapshot>.Success(
             new CommissionRulesSnapshot(version, history),
             $"Commission rules saved as version {version.Version}.");
@@ -234,7 +253,12 @@ public sealed class CommissionService(
         if (!commissionExists)
         {
             var netPrice = deal.Price - deal.Discount;
-            var total = CalculateAmount(netPrice, rules.CommissionType, rules.CommissionAmount);
+            var commissionRule = ResolveCommissionOverride(rules, deal.AgentStaffId, deal.ParcelId);
+            var commissionType = commissionRule?.Type ?? rules.CommissionType;
+            var commissionAmount = commissionRule?.Amount ?? rules.CommissionAmount;
+            var total = commissionRule is null
+                ? CalculateAmount(netPrice, rules.CommissionType, rules.CommissionAmount)
+                : CalculateAmount(netPrice, commissionType, commissionAmount);
             var agentAmount = decimal.Round(total * rules.AgentSharePercent / 100m, 2, MidpointRounding.AwayFromZero);
             var managerAmount = decimal.Round(total * rules.BranchManagerSharePercent / 100m, 2, MidpointRounding.AwayFromZero);
             if (agentAmount + managerAmount > total)
@@ -242,11 +266,14 @@ public sealed class CommissionService(
             var companyAmount = total - agentAmount - managerAmount;
 
             if (agentAmount > 0)
-                uow.Commissions.Add(NewCommission(deal, deal.AgentStaffId, Roles.Agent, rules, agentAmount));
+                uow.Commissions.Add(NewCommission(deal, deal.AgentStaffId, Roles.Agent, agentAmount,
+                    commissionType, commissionAmount));
             if (managerAmount > 0 && branchManager is not null)
-                uow.Commissions.Add(NewCommission(deal, branchManager.Id, Roles.BranchManager, rules, managerAmount));
+                uow.Commissions.Add(NewCommission(deal, branchManager.Id, Roles.BranchManager, managerAmount,
+                    commissionType, commissionAmount));
             if (companyAmount > 0)
-                uow.Commissions.Add(NewCommission(deal, null, CompanyRecipientRole, rules, companyAmount));
+                uow.Commissions.Add(NewCommission(deal, null, CompanyRecipientRole, companyAmount,
+                    commissionType, commissionAmount));
         }
 
         var contact = deal.Lead.Contact;
@@ -452,13 +479,14 @@ public sealed class CommissionService(
 
     private static Commission NewCommission(
         Deal deal, Guid? recipientStaffId, string recipientRole,
-        CommissionRulesVersion rules, decimal amount) =>
+        decimal amount,
+        CommissionCalculationType commissionType, decimal commissionAmount) =>
         new()
         {
             DealId = deal.Id,
             RecipientStaffId = recipientStaffId,
             RecipientRole = recipientRole,
-            Rate = rules.CommissionType == CommissionCalculationType.Percent ? rules.CommissionAmount : null,
+            Rate = commissionType == CommissionCalculationType.Percent ? commissionAmount : null,
             Amount = amount,
             Status = CommissionStatus.Pending,
             BranchId = deal.BranchId
@@ -526,6 +554,31 @@ public sealed class CommissionService(
         return null;
     }
 
+    private static async Task<string?> ValidateOverridesAsync(
+        ITenantUnitOfWork uow, IReadOnlyList<CommissionRuleOverride>? overrides)
+    {
+        if (overrides is null)
+            return null;
+        if (overrides.Count > 500)
+            return "Commission rules can contain no more than 500 overrides.";
+        if (overrides.GroupBy(item => (item.Scope, item.TargetId)).Any(group => group.Count() > 1))
+            return "Each Agent or parcel can have only one commission override.";
+
+        var agents = (await uow.Staff.ListActiveAgentsAsync()).Select(item => item.Id).ToHashSet();
+        var parcels = (await uow.Parcels.ListAsync()).Select(item => item.Id).ToHashSet();
+        foreach (var item in overrides)
+        {
+            if (!Enum.IsDefined(item.Scope) || !Enum.IsDefined(item.Type)
+                || !ValidRuleAmount(item.Type, item.Amount))
+                return "Each override needs a valid Agent or parcel, calculation type, and amount.";
+            if (item.Scope == CommissionOverrideScope.Agent && !agents.Contains(item.TargetId))
+                return "Overrides can be set only for active Agents.";
+            if (item.Scope == CommissionOverrideScope.Parcel && !parcels.Contains(item.TargetId))
+                return "Overrides can be set only for existing parcels.";
+        }
+        return null;
+    }
+
     private static bool ValidRuleAmount(CommissionCalculationType type, decimal amount) =>
         amount > 0
         && (type == CommissionCalculationType.Percent ? amount <= 100m : amount <= MaximumAmount)
@@ -533,6 +586,13 @@ public sealed class CommissionService(
 
     private static bool ValidShare(decimal value) =>
         value >= 0 && value <= 100m && decimal.Round(value, 2) == value;
+
+    private static CommissionRuleOverride? ResolveCommissionOverride(
+        CommissionRulesVersion rules, Guid agentStaffId, Guid parcelId) =>
+        rules.Overrides?.FirstOrDefault(rule =>
+            rule.Scope == CommissionOverrideScope.Agent && rule.TargetId == agentStaffId)
+        ?? rules.Overrides?.FirstOrDefault(rule =>
+            rule.Scope == CommissionOverrideScope.Parcel && rule.TargetId == parcelId);
 
     private static bool TryReadRules(Setting? setting, out CommissionRulesSnapshot snapshot)
     {
@@ -544,7 +604,7 @@ public sealed class CommissionService(
 
         try
         {
-            var data = JsonSerializer.Deserialize<RulesHistoryData>(setting.Value);
+            var data = JsonSerializer.Deserialize<RulesHistoryData>(setting.Value, RuleJsonOptions);
             if (data?.History is null)
             {
                 snapshot = new CommissionRulesSnapshot(null, Array.Empty<CommissionRulesVersion>());

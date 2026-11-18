@@ -191,6 +191,9 @@ internal sealed class ContactRepository(TenantDbContext db) : IContactRepository
 
 internal sealed class StaffRepository(TenantDbContext db) : IStaffRepository
 {
+    public Task<Staff?> GetAsync(Guid staffId) =>
+        db.Staffs.FirstOrDefaultAsync(staff => staff.Id == staffId);
+
     public async Task<IReadOnlyList<Staff>> ListAsync(TenantDataScope? scope = null)
     {
         var query = db.Staffs.AsNoTracking();
@@ -235,6 +238,18 @@ internal sealed class StaffRepository(TenantDbContext db) : IStaffRepository
     public Task<bool> IsActiveReferralStaffAsync(Guid staffId) =>
         db.Staffs.AnyAsync(staff => staff.Id == staffId && staff.IsActive
             && (staff.Role == Roles.Agent || staff.Role == Roles.BranchManager || staff.Role == Roles.TenantAdmin));
+
+    public Task<int> CountActiveTenantAdminsAsync() =>
+        db.Staffs.CountAsync(staff => staff.IsActive && staff.Role == Roles.TenantAdmin);
+}
+
+internal sealed class BranchRepository(TenantDbContext db) : IBranchRepository
+{
+    public async Task<IReadOnlyList<Branch>> ListAsync() =>
+        await db.Branches.AsNoTracking().OrderBy(branch => branch.Name).ToListAsync();
+
+    public Task<bool> ExistsAsync(Guid branchId) =>
+        db.Branches.AnyAsync(branch => branch.Id == branchId);
 }
 
 internal sealed class SettingRepository(TenantDbContext db) : ISettingRepository

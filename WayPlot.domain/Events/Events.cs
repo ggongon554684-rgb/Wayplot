@@ -24,3 +24,7 @@ public sealed record LeadStageChanged(Guid LeadId, LeadStage From, LeadStage To,
 public sealed record PaymentConfirmed(Guid DealId, Guid PaymentId, DateTime OccurredAtUtc) : IDomainEvent;
 public sealed record DealChanged(Guid DealId, Guid ParcelId, Guid ContactId, DateTime OccurredAtUtc) : IDomainEvent;
 public sealed record PayoutChanged(Guid DealId, Guid PayoutId, PayoutKind Kind, DateTime OccurredAtUtc) : IDomainEvent;
+public sealed record StaffChanged(Guid StaffId, DateTime OccurredAtUtc) : IDomainEvent;
+public sealed record TenantSettingChanged(string Key, DateTime OccurredAtUtc) : IDomainEvent;
+public sealed record ContactChanged(Guid ContactId, DateTime OccurredAtUtc) : IDomainEvent;
+public sealed record ParcelChanged(Guid ParcelId, DateTime OccurredAtUtc) : IDomainEvent;

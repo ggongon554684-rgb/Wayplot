@@ -27,6 +27,11 @@ public sealed class MainShellPresenter(LoginResult login, ITenantFeatures featur
             if (login.Role != Roles.Agent)
                 tabs.Add(Tab("deals", "Deals & payments", features.DealsPayments));
             tabs.Add(Tab("commissions", "Commissions", features.DealsPayments));
+            if (login.Role == Roles.TenantAdmin)
+            {
+                tabs.Add(Tab("team", "Team", features.DataCollection));
+                tabs.Add(Tab("review", "Review", features.DealsPayments));
+            }
         }
         tabs.Add(Tab("intelligence", "Intelligence", features.BusinessIntelligence, "Available in Tier B"));
         return tabs;

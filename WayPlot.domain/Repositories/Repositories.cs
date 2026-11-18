@@ -57,6 +57,7 @@ public interface IContactRepository
 
 public interface IStaffRepository
 {
+    Task<Staff?> GetAsync(Guid staffId);
     Task<IReadOnlyList<Staff>> ListAsync(TenantDataScope? scope = null);
     /// <summary>Active Agent staff, without tracking.</summary>
     Task<IReadOnlyList<Staff>> ListActiveAgentsAsync();
@@ -65,6 +66,13 @@ public interface IStaffRepository
     Task<IReadOnlyList<Staff>> ListActiveBranchManagersAsync(Guid branchId);
     Task<IReadOnlyList<Staff>> ListByIdsAsync(IReadOnlyCollection<Guid> staffIds);
     Task<bool> IsActiveReferralStaffAsync(Guid staffId);
+    Task<int> CountActiveTenantAdminsAsync();
+}
+
+public interface IBranchRepository
+{
+    Task<IReadOnlyList<Branch>> ListAsync();
+    Task<bool> ExistsAsync(Guid branchId);
 }
 
 public interface ISettingRepository

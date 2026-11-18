@@ -18,7 +18,8 @@ public sealed class LeadService(
     IClock clock,
     TenantAccessPolicy access,
     IPipelineStageProvider pipelineStages,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider,
+    ITenantFeatures features)
 {
     public async Task<LeadResult> AttachContactToParcelAsync(AttachLeadRequest request)
     {
@@ -472,8 +473,9 @@ public sealed class LeadService(
 
     public async Task<ServiceResult<bool>> ReassignLeadAsync(Guid leadId, Guid toStaffId, string? note = null)
     {
-        if (user.Role != Roles.TenantAdmin)
-            return ServiceResult<bool>.Fail("Only a Tenant Admin can reassign leads.");
+        var permission = RequireTenantAdmin("reassign leads");
+        if (!permission.Ok)
+            return ServiceResult<bool>.Fail(permission.Message);
         await using var uow = uowFactory.Create();
         var lead = await uow.Leads.GetAsync(leadId);
         if (lead is null)
@@ -486,8 +488,10 @@ public sealed class LeadService(
         var source = lead.AssignedStaffId is { } sourceId
             ? (await uow.Staff.ListByIdsAsync([sourceId])).FirstOrDefault()
             : null;
-        if (source?.BranchId is not null && target?.BranchId is not null && source.BranchId != target.BranchId)
-            return ServiceResult<bool>.Fail("Moving records between branches is not supported yet.");
+        if (target is null || !target.IsActive || target.Role != Roles.Agent)
+            return ServiceResult<bool>.Fail("The destination staff member must be an active Agent.");
+        if (features.Branching && source?.BranchId != target.BranchId)
+            return ServiceResult<bool>.Fail("Tier C does not allow reassignment between branches.");
 
         lead.AssignedStaffId = toStaffId;
         lead.LastActivityAtUtc = clock.UtcNow;
@@ -502,7 +506,14 @@ public sealed class LeadService(
                 ? $"Reassigned to {target?.FullName ?? "another agent"}"
                 : note.Trim()
         });
-        await uow.ExecuteInTransactionAsync(async () => await uow.SaveAsync());
+        try
+        {
+            await uow.ExecuteInTransactionAsync(async () => await uow.SaveAsync());
+        }
+        catch (DealLifecycleConcurrencyConflictException)
+        {
+            return ServiceResult<bool>.Fail("The lead changed concurrently. Reload and try again.");
+        }
         await events.DispatchAsync(new LeadStageChanged(lead.Id, lead.Stage, lead.Stage, lead.LastActivityAtUtc));
         return ServiceResult<bool>.Success(true, "Lead reassigned. History was preserved.");
     }
@@ -510,8 +521,9 @@ public sealed class LeadService(
     public async Task<ServiceResult<bool>> ReassignContactAsync(
         Guid contactId, Guid toStaffId, bool includeOpenLeads)
     {
-        if (user.Role != Roles.TenantAdmin)
-            return ServiceResult<bool>.Fail("Only a Tenant Admin can reassign contacts.");
+        var permission = RequireTenantAdmin("reassign contacts");
+        if (!permission.Ok)
+            return ServiceResult<bool>.Fail(permission.Message);
         await using var uow = uowFactory.Create();
         var contact = await uow.Contacts.GetAsync(contactId);
         if (contact is null)
@@ -523,10 +535,13 @@ public sealed class LeadService(
         var source = contact.AssignedStaffId is { } sourceId
             ? (await uow.Staff.ListByIdsAsync([sourceId])).FirstOrDefault()
             : null;
-        if (source?.BranchId is not null && target?.BranchId is not null && source.BranchId != target.BranchId)
-            return ServiceResult<bool>.Fail("Moving records between branches is not supported yet.");
+        if (target is null || !target.IsActive || target.Role != Roles.Agent)
+            return ServiceResult<bool>.Fail("The destination staff member must be an active Agent.");
+        if (features.Branching && source?.BranchId != target.BranchId)
+            return ServiceResult<bool>.Fail("Tier C does not allow reassignment between branches.");
 
         contact.AssignedStaffId = toStaffId;
+        var changedLeads = new List<Lead>();
         if (includeOpenLeads)
         {
             var leads = await uow.Leads.ListByContactAsync(contactId);
@@ -537,6 +552,7 @@ public sealed class LeadService(
                     continue;
                 tracked.AssignedStaffId = toStaffId;
                 tracked.LastActivityAtUtc = clock.UtcNow;
+                changedLeads.Add(tracked);
                 uow.StageHistories.Add(new StageHistory
                 {
                     LeadId = tracked.Id,
@@ -548,14 +564,28 @@ public sealed class LeadService(
                 });
             }
         }
-        await uow.ExecuteInTransactionAsync(async () => await uow.SaveAsync());
+        try
+        {
+            await uow.ExecuteInTransactionAsync(async () => await uow.SaveAsync());
+        }
+        catch (DealLifecycleConcurrencyConflictException)
+        {
+            return ServiceResult<bool>.Fail("The contact or its leads changed concurrently. Reload and try again.");
+        }
+        var occurredAtUtc = clock.UtcNow;
+        await events.DispatchAsync(new ContactChanged(contact.Id, occurredAtUtc));
+        foreach (var lead in changedLeads)
+            await events.DispatchAsync(new LeadStageChanged(lead.Id, lead.Stage, lead.Stage, occurredAtUtc));
         return ServiceResult<bool>.Success(true, "Contact reassigned.");
     }
 
     public async Task<ServiceResult<ReassignmentSummary>> ReassignAllFromAgentAsync(Guid fromStaffId, Guid toStaffId)
     {
-        if (user.Role != Roles.TenantAdmin)
-            return ServiceResult<ReassignmentSummary>.Fail("Only a Tenant Admin can reassign records.");
+        var permission = RequireTenantAdmin("reassign records");
+        if (!permission.Ok)
+            return ServiceResult<ReassignmentSummary>.Fail(permission.Message);
+        if (fromStaffId == toStaffId)
+            return ServiceResult<ReassignmentSummary>.Fail("Choose different source and destination Agents.");
         await using var uow = uowFactory.Create();
         if (!await uow.Staff.IsActiveAgentAsync(fromStaffId)
             || !await uow.Staff.IsActiveAgentAsync(toStaffId))
@@ -563,11 +593,15 @@ public sealed class LeadService(
         var staff = await uow.Staff.ListByIdsAsync([fromStaffId, toStaffId]);
         var source = staff.FirstOrDefault(item => item.Id == fromStaffId);
         var target = staff.FirstOrDefault(item => item.Id == toStaffId);
-        if (source?.BranchId is not null && target?.BranchId is not null && source.BranchId != target.BranchId)
-            return ServiceResult<ReassignmentSummary>.Fail("Moving records between branches is not supported yet.");
+        if (source is null || target is null || !source.IsActive || !target.IsActive
+            || source.Role != Roles.Agent || target.Role != Roles.Agent)
+            return ServiceResult<ReassignmentSummary>.Fail("Both source and destination must be active Agents.");
+        if (features.Branching && source.BranchId != target.BranchId)
+            return ServiceResult<ReassignmentSummary>.Fail("Tier C does not allow reassignment between branches.");
 
         var contacts = await uow.Contacts.SearchAsync(null);
         var contactsReassigned = 0;
+        var changedContacts = new List<Guid>();
         foreach (var contact in contacts.Where(item => item.AssignedStaffId == fromStaffId))
         {
             var tracked = await uow.Contacts.GetAsync(contact.Id);
@@ -575,10 +609,12 @@ public sealed class LeadService(
                 continue;
             tracked.AssignedStaffId = toStaffId;
             contactsReassigned++;
+            changedContacts.Add(tracked.Id);
         }
 
         var leads = await uow.Leads.ListAsync(null, null, fromStaffId);
         var leadsReassigned = 0;
+        var changedLeads = new List<Lead>();
         foreach (var lead in leads.Where(item => item.Stage is not (LeadStage.Closed or LeadStage.Lost)))
         {
             var tracked = await uow.Leads.GetAsync(lead.Id);
@@ -586,6 +622,7 @@ public sealed class LeadService(
                 continue;
             tracked.AssignedStaffId = toStaffId;
             tracked.LastActivityAtUtc = clock.UtcNow;
+            changedLeads.Add(tracked);
             uow.StageHistories.Add(new StageHistory
             {
                 LeadId = tracked.Id,
@@ -600,6 +637,7 @@ public sealed class LeadService(
 
         var parcels = await uow.Parcels.ListAsync();
         var parcelsReassigned = 0;
+        var changedParcels = new List<Guid>();
         foreach (var parcel in parcels.Where(item => item.AssignedStaffId == fromStaffId))
         {
             var tracked = await uow.Parcels.GetAsync(parcel.Id);
@@ -607,12 +645,74 @@ public sealed class LeadService(
                 continue;
             tracked.AssignedStaffId = toStaffId;
             parcelsReassigned++;
+            changedParcels.Add(tracked.Id);
         }
 
-        await uow.ExecuteInTransactionAsync(async () => await uow.SaveAsync());
+        try
+        {
+            await uow.ExecuteInTransactionAsync(async () => await uow.SaveAsync());
+        }
+        catch (DealLifecycleConcurrencyConflictException)
+        {
+            return ServiceResult<ReassignmentSummary>.Fail("Some assigned records changed concurrently. Reload and try again.");
+        }
+        catch (ParcelConcurrencyConflictException)
+        {
+            return ServiceResult<ReassignmentSummary>.Fail("A parcel changed concurrently. Reload and try again.");
+        }
+        var occurredAtUtc = clock.UtcNow;
+        foreach (var contactId in changedContacts)
+            await events.DispatchAsync(new ContactChanged(contactId, occurredAtUtc));
+        foreach (var lead in changedLeads)
+            await events.DispatchAsync(new LeadStageChanged(lead.Id, lead.Stage, lead.Stage, occurredAtUtc));
+        foreach (var parcelId in changedParcels)
+            await events.DispatchAsync(new ParcelChanged(parcelId, occurredAtUtc));
         return ServiceResult<ReassignmentSummary>.Success(
             new ReassignmentSummary(contactsReassigned, leadsReassigned, parcelsReassigned),
             $"Reassigned {contactsReassigned} contacts, {leadsReassigned} open leads, and {parcelsReassigned} parcels.");
+    }
+
+    public async Task<ServiceResult<ReassignmentSummary>> PreviewReassignAllFromAgentAsync(
+        Guid fromStaffId, Guid toStaffId)
+    {
+        var permission = RequireTenantAdmin("preview reassignment");
+        if (!permission.Ok)
+            return ServiceResult<ReassignmentSummary>.Fail(permission.Message);
+        if (fromStaffId == toStaffId)
+            return ServiceResult<ReassignmentSummary>.Fail("Choose different source and destination Agents.");
+
+        await using var uow = uowFactory.Create();
+        if (!await uow.Staff.IsActiveAgentAsync(fromStaffId)
+            || !await uow.Staff.IsActiveAgentAsync(toStaffId))
+            return ServiceResult<ReassignmentSummary>.Fail("Both source and destination must be active Agents.");
+        var staff = await uow.Staff.ListByIdsAsync([fromStaffId, toStaffId]);
+        var source = staff.FirstOrDefault(item => item.Id == fromStaffId);
+        var target = staff.FirstOrDefault(item => item.Id == toStaffId);
+        if (source is null || target is null || !source.IsActive || !target.IsActive
+            || source.Role != Roles.Agent || target.Role != Roles.Agent)
+            return ServiceResult<ReassignmentSummary>.Fail("Both source and destination must be active Agents.");
+        if (features.Branching && source.BranchId != target.BranchId)
+            return ServiceResult<ReassignmentSummary>.Fail("Tier C does not allow reassignment between branches.");
+
+        var contacts = (await uow.Contacts.SearchAsync(null))
+            .Count(contact => contact.AssignedStaffId == fromStaffId);
+        var leads = (await uow.Leads.ListAsync(null, null, fromStaffId))
+            .Count(lead => lead.Stage is not (LeadStage.Closed or LeadStage.Lost));
+        var parcels = (await uow.Parcels.ListAsync())
+            .Count(parcel => parcel.AssignedStaffId == fromStaffId);
+        return ServiceResult<ReassignmentSummary>.Success(
+            new ReassignmentSummary(contacts, leads, parcels),
+            $"Ready to reassign {contacts} contacts, {leads} open leads, and {parcels} parcels.");
+    }
+
+    private RuleResult RequireTenantAdmin(string action)
+    {
+        var permission = access.RequireDataMutation(action);
+        if (!permission.Ok)
+            return permission;
+        return user.Role == Roles.TenantAdmin
+            ? RuleResult.Success()
+            : RuleResult.Fail("Only a Tenant Admin can reassign records.");
     }
 
     public async Task<LeadResult> MoveStageAsync(MoveStageRequest request)

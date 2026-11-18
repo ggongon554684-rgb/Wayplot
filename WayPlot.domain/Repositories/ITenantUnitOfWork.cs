@@ -8,6 +8,7 @@ public interface ITenantUnitOfWork : IAsyncDisposable
     IParcelPhotoRepository ParcelPhotos { get; }
     IContactRepository Contacts { get; }
     IStaffRepository Staff { get; }
+    IBranchRepository Branches { get; }
     ISettingRepository Settings { get; }
     ILeadRepository Leads { get; }
     IInteractionRepository Interactions { get; }

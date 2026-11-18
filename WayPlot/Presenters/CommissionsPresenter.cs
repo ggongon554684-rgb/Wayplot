@@ -1,6 +1,8 @@
 using WayPlot.domain.Common;
 using WayPlot.domain.Contracts;
 using WayPlot.domain.Interfaces;
+using WayPlot.domain.Services.Admin;
+using WayPlot.domain.Services.DataCollection;
 using WayPlot.domain.Services.MainTransaction;
 
 namespace WayPlot.Presenters;
@@ -23,11 +25,70 @@ public sealed class CommissionsPresenter(
     ICommissionsView view,
     CommissionService commissions,
     ICurrentUser user,
-    ITenantFeatures features)
+    ITenantFeatures features,
+    CompanyProfileService companyProfile,
+    StaffService staff,
+    ParcelService parcels)
 {
     private int _latest;
 
     public bool HasBranching => features.Branching;
+    public bool CanReadCompanyProfile =>
+        user.Role is Roles.TenantAdmin or Roles.BranchManager or Roles.Agent;
+    public bool CanEditCompanyProfile => user.Role == Roles.TenantAdmin;
+
+    public async Task<ServiceResult<IReadOnlyList<CommissionOverrideTarget>>> GetOverrideTargetsAsync()
+    {
+        try
+        {
+            var staffResult = await staff.ListStaffAsync();
+            if (!staffResult.Ok || staffResult.Value is null)
+                return ServiceResult<IReadOnlyList<CommissionOverrideTarget>>.Fail(staffResult.Message);
+            var parcelResult = await parcels.ListAsync();
+            if (!parcelResult.Ok || parcelResult.Value is null)
+                return ServiceResult<IReadOnlyList<CommissionOverrideTarget>>.Fail(parcelResult.Message);
+
+            var targets = staffResult.Value
+                .Where(member => member.IsActive && member.Role == Roles.Agent)
+                .Select(member => new CommissionOverrideTarget(
+                    CommissionOverrideScope.Agent, member.Id, member.DisplayName))
+                .Concat(parcelResult.Value.Select(parcel => new CommissionOverrideTarget(
+                    CommissionOverrideScope.Parcel, parcel.Id, parcel.Label)))
+                .ToList();
+            return ServiceResult<IReadOnlyList<CommissionOverrideTarget>>.Success(targets);
+        }
+        catch (Exception)
+        {
+            return ServiceResult<IReadOnlyList<CommissionOverrideTarget>>.Fail(
+                "Commission override choices could not be loaded. Reload and try again.");
+        }
+    }
+
+    public async Task<ServiceResult<CompanyProfileSnapshot>> GetCompanyProfileAsync()
+    {
+        try
+        {
+            return await companyProfile.GetAsync();
+        }
+        catch (Exception)
+        {
+            return ServiceResult<CompanyProfileSnapshot>.Fail(
+                "The company profile could not be loaded. Check the connection and try again.");
+        }
+    }
+
+    public async Task<ServiceResult<CompanyProfileSnapshot>> SaveCompanyProfileAsync(CompanyProfileRequest request)
+    {
+        try
+        {
+            return await companyProfile.SaveAsync(request);
+        }
+        catch (Exception)
+        {
+            return ServiceResult<CompanyProfileSnapshot>.Fail(
+                "The company profile could not be saved. No changes were made; reload and try again.");
+        }
+    }
 
     public CommissionActionStates GetActionStates(PayoutListItem? payout)
     {

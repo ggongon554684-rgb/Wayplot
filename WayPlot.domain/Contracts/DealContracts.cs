@@ -62,3 +62,12 @@ public sealed record PaymentListItem(
     string ReceiptNo,
     PaymentStatus Status,
     string? ReviewNote);
+
+public sealed record ReviewPaymentListItem(
+    PaymentListItem Payment,
+    string ContactName,
+    string ParcelLabel);
+
+public sealed record AdminReviewQueue(
+    IReadOnlyList<DealListItem> ClosedRequests,
+    IReadOnlyList<ReviewPaymentListItem> PaymentsAwaitingConfirmation);

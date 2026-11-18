@@ -21,6 +21,7 @@ internal sealed class TenantUnitOfWork : ITenantUnitOfWork
         ParcelPhotos = new ParcelPhotoRepository(db);
         Contacts = new ContactRepository(db);
         Staff = new StaffRepository(db);
+        Branches = new BranchRepository(db);
         Settings = new SettingRepository(db);
         Leads = new LeadRepository(db);
         Interactions = new InteractionRepository(db);
@@ -37,6 +38,7 @@ internal sealed class TenantUnitOfWork : ITenantUnitOfWork
     public IParcelPhotoRepository ParcelPhotos { get; }
     public IContactRepository Contacts { get; }
     public IStaffRepository Staff { get; }
+    public IBranchRepository Branches { get; }
     public ISettingRepository Settings { get; }
     public ILeadRepository Leads { get; }
     public IInteractionRepository Interactions { get; }
@@ -57,9 +59,25 @@ internal sealed class TenantUnitOfWork : ITenantUnitOfWork
         {
             throw new ParcelConcurrencyConflictException(ex);
         }
-        catch (DbUpdateConcurrencyException ex) when (ex.Entries.Any(entry => entry.Entity is Deal or Payment or Commission or ReferralBonus or Contact))
+        catch (DbUpdateConcurrencyException ex) when (ex.Entries.Any(entry =>
+            entry.Entity is Deal or Payment or Commission or ReferralBonus or Contact or Lead))
         {
             throw new DealLifecycleConcurrencyConflictException(ex);
+        }
+        catch (DbUpdateConcurrencyException ex) when (ex.Entries.Any(entry => entry.Entity is Setting))
+        {
+            throw new SettingConcurrencyConflictException(ex);
+        }
+        catch (DbUpdateConcurrencyException ex) when (ex.Entries.Any(entry => entry.Entity is Staff))
+        {
+            throw new StaffConcurrencyConflictException(ex);
+        }
+        catch (DbUpdateException ex) when (
+            ex.Entries.Any(entry => entry.Entity is Setting)
+            && ex.InnerException is SqlException sql
+            && sql.Number is 2601 or 2627)
+        {
+            throw new SettingConcurrencyConflictException(ex);
         }
         catch (DbUpdateException ex) when (
             ex.Entries.Any(entry => entry.Entity is Parcel)

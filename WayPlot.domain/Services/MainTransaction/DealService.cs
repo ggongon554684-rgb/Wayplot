@@ -34,6 +34,34 @@ public sealed class DealService(
         return ServiceResult<IReadOnlyList<DealListItem>>.Success(items);
     }
 
+    public async Task<ServiceResult<AdminReviewQueue>> GetAdminReviewQueueAsync()
+    {
+        var scope = access.GetDataReadScope("admin review queue");
+        if (!scope.Ok)
+            return ServiceResult<AdminReviewQueue>.Fail(scope.Message);
+        if (user.Role != Roles.TenantAdmin)
+            return ServiceResult<AdminReviewQueue>.Fail("Only a Tenant Admin can view the review queue.");
+
+        await using var uow = uowFactory.Create();
+        var deals = await uow.Deals.ListAsync(null, null);
+        var closedRequests = deals
+            .Where(deal => deal.IsActive && deal.ConfirmedAtUtc is null && deal.Lead.CloseRequested)
+            .Select(ToListItem)
+            .ToList();
+        var pendingPayments = deals
+            .SelectMany(deal => deal.Payments
+                .Where(payment => payment.Status == PaymentStatus.AwaitingAdmin)
+                .Select(payment => new ReviewPaymentListItem(
+                    ToPaymentListItem(payment),
+                    deal.Lead.Contact.FullName,
+                    deal.Lead.Parcel.Label)))
+            .OrderByDescending(item => item.Payment.PaidAtUtc)
+            .ToList();
+
+        return ServiceResult<AdminReviewQueue>.Success(
+            new AdminReviewQueue(closedRequests, pendingPayments));
+    }
+
     public async Task<ServiceResult<DealSummaryDto>> GetDealSummaryAsync(Guid dealId)
     {
         var scope = access.GetDataReadScope("deal summaries");

@@ -237,7 +237,14 @@ public sealed record StaffListItem(
     Guid? BranchId,
     bool IsActive,
     int OpenLeadCount,
-    int ParcelCount)
+    int ParcelCount,
+    int AvailableParcelCount = 0,
+    int Version = 1)
 {
     public override string ToString() => DisplayName;
+}
+
+public sealed record BranchListItem(Guid Id, string Name)
+{
+    public override string ToString() => Name;
 }

@@ -23,6 +23,7 @@ namespace WayPlot.Views
             lblTitle = new Label();
             toolbar = new FlowLayoutPanel();
             btnRules = new Button();
+            btnCompanyProfile = new Button();
             btnApprove = new Button();
             btnMarkPaid = new Button();
             lblHelp = new Label();
@@ -110,6 +111,7 @@ namespace WayPlot.Views
             // 
             toolbar.AutoSize = true;
             toolbar.Controls.Add(btnRules);
+            toolbar.Controls.Add(btnCompanyProfile);
             toolbar.Controls.Add(btnApprove);
             toolbar.Controls.Add(btnMarkPaid);
             toolbar.Dock = DockStyle.Fill;
@@ -131,6 +133,13 @@ namespace WayPlot.Views
             btnRules.TabIndex = 0;
             btnRules.Text = "Commission rules";
             btnRules.UseVisualStyleBackColor = false;
+            btnCompanyProfile.AutoSize = true;
+            btnCompanyProfile.Location = new Point(0, 0);
+            btnCompanyProfile.Margin = new Padding(10, 0, 0, 0);
+            btnCompanyProfile.Name = "btnCompanyProfile";
+            btnCompanyProfile.TabIndex = 3;
+            btnCompanyProfile.Text = "Company profile";
+            btnCompanyProfile.UseVisualStyleBackColor = false;
             // 
             // btnApprove
             // 
@@ -256,6 +265,7 @@ namespace WayPlot.Views
         private Label lblTitle;
         private FlowLayoutPanel toolbar;
         private Button btnRules;
+        private Button btnCompanyProfile;
         private Button btnApprove;
         private Button btnMarkPaid;
         private Label lblHelp;
