@@ -113,6 +113,7 @@ public interface ILeadRepository
     Task<Lead?> GetForDisplayAsync(Guid id, TenantDataScope? scope = null);
     /// <summary>Leads matching the optional stage and contact/parcel search, newest activity first.</summary>
     Task<IReadOnlyList<Lead>> ListAsync(LeadStage? stage, string? search, Guid? assignedStaffId = null, TenantDataScope? scope = null);
+    Task<int> CountOpenByStageAsync(LeadStage stage);
     /// <summary>Leads on the parcel with Contact and Parcel loaded, newest activity first.</summary>
     Task<IReadOnlyList<Lead>> ListByParcelAsync(Guid parcelId, TenantDataScope? scope = null);
     Task<IReadOnlyList<LeadStage>> ListStagesByParcelAsync(Guid parcelId);

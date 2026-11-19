@@ -17,7 +17,7 @@ public sealed class PipelineConfigService(
     IPipelineStageProvider stages,
     IDomainEventDispatcher events)
 {
-    private const string SettingKey = "PipelineStages";
+    private const string SettingKey = PipelineStageConfigJson.SettingKey;
 
     public async Task<ServiceResult<PipelineStageConfigSnapshot>> GetAsync()
     {
@@ -68,51 +68,66 @@ public sealed class PipelineConfigService(
         if (validation is not null)
             return ServiceResult<PipelineStageConfigSnapshot>.Fail(validation);
 
-        var scope = access.GetDataReadScope("pipeline stages");
-        if (!scope.Ok)
-            return ServiceResult<PipelineStageConfigSnapshot>.Fail(scope.Message);
-
         await using var uow = uowFactory.Create();
-        var setting = await uow.Settings.GetByKeyAsync(SettingKey);
-        if (!TryRead(setting, out var current))
-            return ServiceResult<PipelineStageConfigSnapshot>.Fail(
-                "Pipeline stage configuration could not be read. No changes were made.");
-
-        var currentVersion = current.Current?.Version ?? 0;
-        if (request.ExpectedVersion != currentVersion)
-            return ServiceResult<PipelineStageConfigSnapshot>.Fail(
-                "Pipeline stages changed concurrently. Reload and try again.");
-
-        var leads = await uow.Leads.ListAsync(null, null, scope: scope.Value);
-        foreach (var stage in normalizedStages!)
-        {
-            if (stage.IsActive)
-                continue;
-
-            var openLeadCount = leads.Count(lead =>
-                lead.Stage == stage.Stage && lead.Stage is not (LeadStage.Closed or LeadStage.Lost));
-            if (openLeadCount > 0)
-                return ServiceResult<PipelineStageConfigSnapshot>.Fail(
-                    $"Cannot turn off {stage.Name}: {openLeadCount} open " +
-                    $"{(openLeadCount == 1 ? "lead is" : "leads are")} in this stage.");
-        }
-
-        var version = new PipelineStageConfigVersion(
-            currentVersion + 1,
-            clock.UtcNow,
-            user.UserName,
-            normalizedStages!);
-        var history = current.History.Append(version).ToList();
-        var value = PipelineStageConfigJson.Serialize(new PipelineStageConfigHistory(history));
-
-        if (setting is null)
-            uow.Settings.Add(new Setting { Key = SettingKey, Value = value });
-        else
-            setting.Value = value;
+        PipelineStageConfigSnapshot? savedSnapshot = null;
+        string? failureMessage = null;
+        string? successMessage = null;
 
         try
         {
-            await uow.ExecuteInTransactionAsync(async () => await uow.SaveAsync());
+            await uow.ExecuteInTransactionAsync(async () =>
+            {
+                if (!await uow.AcquirePipelineStagesLockAsync())
+                {
+                    failureMessage = "Pipeline stages are being changed. Refresh and try again.";
+                    return;
+                }
+
+                var setting = await uow.Settings.GetByKeyAsync(SettingKey);
+                if (!TryRead(setting, out var current))
+                {
+                    failureMessage = "Pipeline stage configuration could not be read. No changes were made.";
+                    return;
+                }
+
+                var currentVersion = current.Current?.Version ?? 0;
+                if (request.ExpectedVersion != currentVersion)
+                {
+                    failureMessage = "Pipeline stages changed concurrently. Reload and try again.";
+                    return;
+                }
+
+                foreach (var stage in normalizedStages!)
+                {
+                    if (stage.IsActive)
+                        continue;
+
+                    var openLeadCount = await uow.Leads.CountOpenByStageAsync(stage.Stage);
+                    if (openLeadCount > 0)
+                    {
+                        failureMessage = $"Cannot turn off {stage.Name}: {openLeadCount} open " +
+                            $"{(openLeadCount == 1 ? "lead is" : "leads are")} in this stage.";
+                        return;
+                    }
+                }
+
+                var version = new PipelineStageConfigVersion(
+                    currentVersion + 1,
+                    clock.UtcNow,
+                    user.UserName,
+                    normalizedStages!);
+                var history = current.History.Append(version).ToList();
+                var value = PipelineStageConfigJson.Serialize(new PipelineStageConfigHistory(history));
+
+                if (setting is null)
+                    uow.Settings.Add(new Setting { Key = SettingKey, Value = value });
+                else
+                    setting.Value = value;
+
+                await uow.SaveAsync();
+                savedSnapshot = new PipelineStageConfigSnapshot(version, history);
+                successMessage = $"Pipeline stages saved as version {version.Version}.";
+            });
         }
         catch (SettingConcurrencyConflictException)
         {
@@ -120,12 +135,18 @@ public sealed class PipelineConfigService(
                 "Pipeline stages changed concurrently. Reload and try again.");
         }
 
+        if (failureMessage is not null)
+            return ServiceResult<PipelineStageConfigSnapshot>.Fail(failureMessage);
+        if (savedSnapshot is null)
+            return ServiceResult<PipelineStageConfigSnapshot>.Fail(
+                "Pipeline stages could not be saved. Refresh and try again.");
+
         var changedAtUtc = clock.UtcNow;
         await events.DispatchAsync(new TenantSettingChanged(SettingKey, changedAtUtc));
         await events.DispatchAsync(new PipelineConfigChanged(changedAtUtc));
         return ServiceResult<PipelineStageConfigSnapshot>.Success(
-            new PipelineStageConfigSnapshot(version, history),
-            $"Pipeline stages saved as version {version.Version}.");
+            savedSnapshot,
+            successMessage!);
     }
 
     private static bool TryRead(Setting? setting, out PipelineStageConfigSnapshot snapshot)

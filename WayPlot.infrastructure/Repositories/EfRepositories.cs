@@ -382,6 +382,11 @@ internal sealed class LeadRepository(TenantDbContext db) : ILeadRepository
             .ToListAsync();
     }
 
+    public Task<int> CountOpenByStageAsync(LeadStage stage) =>
+        db.Leads.CountAsync(lead => lead.Stage == stage
+            && lead.Stage != LeadStage.Closed
+            && lead.Stage != LeadStage.Lost);
+
     public async Task<IReadOnlyList<Lead>> ListByParcelAsync(Guid parcelId, TenantDataScope? scope = null) =>
         await ApplyScope(db.Leads.AsNoTracking()
             .Include(l => l.Contact).Include(l => l.Parcel)

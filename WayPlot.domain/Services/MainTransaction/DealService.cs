@@ -200,113 +200,187 @@ public sealed class DealService(
         if (!permission.Ok)
             return ServiceResult<DealListItem>.Fail(permission.Message);
 
-        await pipelineStages.EnsureLoadedAsync();
         await using var uow = uowFactory.Create();
-        var lead = await uow.Leads.GetAsync(request.LeadId);
-        if (lead is null)
-            return ServiceResult<DealListItem>.Fail("That lead was not found.");
-        var leadPermission = access.RequireLeadMutation(lead, "request Closed");
-        if (!leadPermission.Ok)
-            return ServiceResult<DealListItem>.Fail(leadPermission.Message);
-        if (user.Role == Roles.TenantAdmin && lead.AssignedStaffId is null)
-            return ServiceResult<DealListItem>.Fail("Assign this lead to an agent before requesting Closed.");
-        var closingStage = pipelineStages.ClosingStage;
-        var closingStageName = pipelineStages.GetDisplayName(closingStage);
-        if (lead.Stage != closingStage)
-            return ServiceResult<DealListItem>.Fail(
-                $"Closed can only be requested for a lead in {closingStageName}.");
-        if (lead.CloseRequested)
-            return ServiceResult<DealListItem>.Fail("This lead already has a pending close request.");
-        if (lead.Parcel.Status is ParcelStatus.Sold or ParcelStatus.Leased)
-            return ServiceResult<DealListItem>.Fail($"Closed was refused: parcel {lead.Parcel.Label} is {lead.Parcel.Status}.");
-        if (lead.Parcel.Status is not (ParcelStatus.Available or ParcelStatus.Reserved))
-            return ServiceResult<DealListItem>.Fail($"Closed was refused: parcel {lead.Parcel.Label} is {lead.Parcel.Status}.");
+        ServiceResult<DealListItem>? result = null;
+        Deal? requestedDeal = null;
+        var requestedAtUtc = default(DateTime);
 
-        var activeDeal = await uow.Deals.GetActiveForParcelAsync(lead.ParcelId);
-        if (activeDeal is not null)
+        await uow.ExecuteInTransactionAsync(async () =>
         {
-            var existingState = activeDeal.ConfirmedAtUtc is null
-                ? "pending request"
-                : activeDeal.Status + " deal";
-            return ServiceResult<DealListItem>.Fail(
-                $"Closed was refused: parcel {lead.Parcel.Label} already has a {existingState}.");
-        }
+            if (!await uow.AcquirePipelineStagesLockAsync())
+            {
+                result = ServiceResult<DealListItem>.Fail(
+                    "The pipeline stages were just changed. Refresh and try again.");
+                return;
+            }
 
-        var defaultPrice = lead.OfferAmount is > 0 ? lead.OfferAmount.Value : lead.Parcel.Price;
-        var price = request.Price ?? defaultPrice;
-        if (price <= 0 || price > MaximumPrice || decimal.Round(price, 2) != price)
-            return ServiceResult<DealListItem>.Fail("The deal price must be greater than zero and within the supported amount range.");
-        if (request.Discount < 0 || request.Discount >= price
-            || decimal.Round(request.Discount, 2) != request.Discount)
-            return ServiceResult<DealListItem>.Fail("The discount must be non-negative, have at most two decimal places, and be less than the deal price.");
-        var netPrice = price - request.Discount;
-        var reservationFee = request.ReservationFee ?? lead.Parcel.ReservationFee;
-        if (reservationFee < 0 || reservationFee > netPrice
-            || decimal.Round(reservationFee, 2) != reservationFee)
-            return ServiceResult<DealListItem>.Fail("The reservation fee must be between zero and the net deal price, with at most two decimal places.");
-        if (request.DownPayment < 0 || request.DownPayment > netPrice
-            || decimal.Round(request.DownPayment, 2) != request.DownPayment)
-            return ServiceResult<DealListItem>.Fail("The down payment must be between zero and the net deal price, with at most two decimal places.");
-        if (request.IsInstallment
-            && (request.InstallmentCount is < 1 or > 120 || request.DueDay is < 1 or > 31
-                || request.DownPayment >= netPrice))
-            return ServiceResult<DealListItem>.Fail("An installment plan needs 1 to 120 installments, a due day from 1 to 31, and a balance after down payment.");
-        if (!request.IsInstallment && request.InstallmentCount != 0)
-            return ServiceResult<DealListItem>.Fail("A full-payment deal cannot have an installment count.");
+            var setting = await uow.Settings.GetByKeyAsync(PipelineStageConfigJson.SettingKey);
+            if (!PipelineStageConfigJson.TryReadCurrentConfiguration(setting?.Value, out var configuration))
+            {
+                result = ServiceResult<DealListItem>.Fail(
+                    "The pipeline stages were just changed. Refresh and try again.");
+                return;
+            }
 
-        var now = clock.UtcNow;
-        var deal = new Deal
-        {
-            LeadId = lead.Id,
-            Lead = lead,
-            ParcelId = lead.ParcelId,
-            Parcel = lead.Parcel,
-            ContactId = lead.ContactId,
-            Contact = lead.Contact,
-            AgentStaffId = lead.AssignedStaffId ?? access.CurrentStaffId!.Value,
-            Price = price,
-            Discount = request.Discount,
-            ReservationFee = reservationFee,
-            DownPayment = request.DownPayment,
-            IsInstallment = request.IsInstallment,
-            InstallmentCount = request.IsInstallment ? request.InstallmentCount : 0,
-            InstallmentAmount = request.IsInstallment
-                ? decimal.Round((netPrice - request.DownPayment) / request.InstallmentCount, 2, MidpointRounding.AwayFromZero)
-                : 0,
-            DueDay = request.IsInstallment ? request.DueDay : 1,
-            Status = DealStatus.Current,
-            IsActive = true
-        };
-        lead.CloseRequested = true;
-        lead.LastActivityAtUtc = now;
-        if (lead.Parcel.Status == ParcelStatus.Available)
-            SetParcelStatus(deal, ParcelStatus.Reserved);
-        uow.Deals.Add(deal);
+            var lead = await uow.Leads.GetAsync(request.LeadId);
+            if (lead is null)
+            {
+                result = ServiceResult<DealListItem>.Fail("That lead was not found.");
+                return;
+            }
+            var leadPermission = access.RequireLeadMutation(lead, "request Closed");
+            if (!leadPermission.Ok)
+            {
+                result = ServiceResult<DealListItem>.Fail(leadPermission.Message);
+                return;
+            }
+            if (user.Role == Roles.TenantAdmin && lead.AssignedStaffId is null)
+            {
+                result = ServiceResult<DealListItem>.Fail("Assign this lead to an agent before requesting Closed.");
+                return;
+            }
 
-        try
-        {
-            await uow.SaveAsync();
-        }
-        catch (DealLifecycleConcurrencyConflictException)
-        {
-            return ServiceResult<DealListItem>.Fail("Closed was refused because the deal or parcel changed concurrently. Reload and try again.");
-        }
-        catch (ActiveDealConflictException)
-        {
-            var active = await uow.Deals.GetActiveForParcelAsync(lead.ParcelId);
-            var state = active is null
-                ? "an active deal"
-                : active.ConfirmedAtUtc is null ? "a pending request" : $"{active.Status} deal";
-            return ServiceResult<DealListItem>.Fail(
-                $"Closed was refused: parcel {lead.Parcel.Label} already has {state}.");
-        }
-        catch (ParcelConcurrencyConflictException)
-        {
-            return ServiceResult<DealListItem>.Fail("Closed was refused because the parcel changed concurrently. Reload and try again.");
-        }
+            var closingStage = PipelineStageDefinition.ClosingStage(configuration);
+            if (lead.Stage != closingStage)
+            {
+                result = ServiceResult<DealListItem>.Fail(
+                    "The pipeline stages were just changed. Refresh and try again.");
+                return;
+            }
+            if (lead.CloseRequested)
+            {
+                result = ServiceResult<DealListItem>.Fail("This lead already has a pending close request.");
+                return;
+            }
+            if (lead.Parcel.Status is ParcelStatus.Sold or ParcelStatus.Leased)
+            {
+                result = ServiceResult<DealListItem>.Fail($"Closed was refused: parcel {lead.Parcel.Label} is {lead.Parcel.Status}.");
+                return;
+            }
+            if (lead.Parcel.Status is not (ParcelStatus.Available or ParcelStatus.Reserved))
+            {
+                result = ServiceResult<DealListItem>.Fail($"Closed was refused: parcel {lead.Parcel.Label} is {lead.Parcel.Status}.");
+                return;
+            }
 
-        await events.DispatchAsync(new DealChanged(deal.Id, deal.ParcelId, deal.ContactId, now));
-        return ServiceResult<DealListItem>.Success(ToListItem(deal), "Closed request submitted to the Tenant Admin for confirmation.");
+            var activeDeal = await uow.Deals.GetActiveForParcelAsync(lead.ParcelId);
+            if (activeDeal is not null)
+            {
+                var existingState = activeDeal.ConfirmedAtUtc is null
+                    ? "pending request"
+                    : activeDeal.Status + " deal";
+                result = ServiceResult<DealListItem>.Fail(
+                    $"Closed was refused: parcel {lead.Parcel.Label} already has a {existingState}.");
+                return;
+            }
+
+            var defaultPrice = lead.OfferAmount is > 0 ? lead.OfferAmount.Value : lead.Parcel.Price;
+            var price = request.Price ?? defaultPrice;
+            if (price <= 0 || price > MaximumPrice || decimal.Round(price, 2) != price)
+            {
+                result = ServiceResult<DealListItem>.Fail("The deal price must be greater than zero and within the supported amount range.");
+                return;
+            }
+            if (request.Discount < 0 || request.Discount >= price
+                || decimal.Round(request.Discount, 2) != request.Discount)
+            {
+                result = ServiceResult<DealListItem>.Fail("The discount must be non-negative, have at most two decimal places, and be less than the deal price.");
+                return;
+            }
+            var netPrice = price - request.Discount;
+            var reservationFee = request.ReservationFee ?? lead.Parcel.ReservationFee;
+            if (reservationFee < 0 || reservationFee > netPrice
+                || decimal.Round(reservationFee, 2) != reservationFee)
+            {
+                result = ServiceResult<DealListItem>.Fail("The reservation fee must be between zero and the net deal price, with at most two decimal places.");
+                return;
+            }
+            if (request.DownPayment < 0 || request.DownPayment > netPrice
+                || decimal.Round(request.DownPayment, 2) != request.DownPayment)
+            {
+                result = ServiceResult<DealListItem>.Fail("The down payment must be between zero and the net deal price, with at most two decimal places.");
+                return;
+            }
+            if (request.IsInstallment
+                && (request.InstallmentCount is < 1 or > 120 || request.DueDay is < 1 or > 31
+                    || request.DownPayment >= netPrice))
+            {
+                result = ServiceResult<DealListItem>.Fail("An installment plan needs 1 to 120 installments, a due day from 1 to 31, and a balance after down payment.");
+                return;
+            }
+            if (!request.IsInstallment && request.InstallmentCount != 0)
+            {
+                result = ServiceResult<DealListItem>.Fail("A full-payment deal cannot have an installment count.");
+                return;
+            }
+
+            var now = clock.UtcNow;
+            var deal = new Deal
+            {
+                LeadId = lead.Id,
+                Lead = lead,
+                ParcelId = lead.ParcelId,
+                Parcel = lead.Parcel,
+                ContactId = lead.ContactId,
+                Contact = lead.Contact,
+                AgentStaffId = lead.AssignedStaffId ?? access.CurrentStaffId!.Value,
+                Price = price,
+                Discount = request.Discount,
+                ReservationFee = reservationFee,
+                DownPayment = request.DownPayment,
+                IsInstallment = request.IsInstallment,
+                InstallmentCount = request.IsInstallment ? request.InstallmentCount : 0,
+                InstallmentAmount = request.IsInstallment
+                    ? decimal.Round((netPrice - request.DownPayment) / request.InstallmentCount, 2, MidpointRounding.AwayFromZero)
+                    : 0,
+                DueDay = request.IsInstallment ? request.DueDay : 1,
+                Status = DealStatus.Current,
+                IsActive = true
+            };
+            lead.CloseRequested = true;
+            lead.LastActivityAtUtc = now;
+            if (lead.Parcel.Status == ParcelStatus.Available)
+                SetParcelStatus(deal, ParcelStatus.Reserved);
+            uow.Deals.Add(deal);
+
+            try
+            {
+                await uow.SaveAsync();
+            }
+            catch (DealLifecycleConcurrencyConflictException)
+            {
+                result = ServiceResult<DealListItem>.Fail("Closed was refused because the deal or parcel changed concurrently. Reload and try again.");
+                return;
+            }
+            catch (ActiveDealConflictException)
+            {
+                var active = await uow.Deals.GetActiveForParcelAsync(lead.ParcelId);
+                var state = active is null
+                    ? "an active deal"
+                    : active.ConfirmedAtUtc is null ? "a pending request" : $"{active.Status} deal";
+                result = ServiceResult<DealListItem>.Fail(
+                    $"Closed was refused: parcel {lead.Parcel.Label} already has {state}.");
+                return;
+            }
+            catch (ParcelConcurrencyConflictException)
+            {
+                result = ServiceResult<DealListItem>.Fail("Closed was refused because the parcel changed concurrently. Reload and try again.");
+                return;
+            }
+
+            requestedDeal = deal;
+            requestedAtUtc = now;
+            result = ServiceResult<DealListItem>.Success(
+                ToListItem(deal),
+                "Closed request submitted to the Tenant Admin for confirmation.");
+        });
+
+        if (requestedDeal is null)
+            return result ?? ServiceResult<DealListItem>.Fail("Closed was refused. Refresh and try again.");
+
+        await events.DispatchAsync(new DealChanged(
+            requestedDeal.Id, requestedDeal.ParcelId, requestedDeal.ContactId, requestedAtUtc));
+        return result!.Value;
     }
 
     public async Task<ServiceResult<DealListItem>> ConfirmClosedAsync(Guid dealId, ParcelStatus closingStatus)

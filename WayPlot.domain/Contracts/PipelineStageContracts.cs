@@ -98,6 +98,26 @@ public static class PipelineStageDefinition
         return stages;
     }
 
+    public static IReadOnlyList<PipelineStageInfo> GetStagesForBoard(
+        IReadOnlyList<PipelineStageSetting> configuration,
+        IReadOnlySet<LeadStage> inactiveStagesWithLeads)
+    {
+        var stages = new List<PipelineStageInfo>
+        {
+            new(Key(LeadStage.New), "New", 0, true)
+        };
+        foreach (var setting in configuration.OrderBy(stage => stage.SortOrder))
+        {
+            if (!setting.IsActive && !inactiveStagesWithLeads.Contains(setting.Stage))
+                continue;
+            var name = setting.IsActive ? setting.Name : $"{setting.Name} (inactive)";
+            stages.Add(new PipelineStageInfo(Key(setting.Stage), name, stages.Count, false));
+        }
+        stages.Add(new PipelineStageInfo(Key(LeadStage.Closed), "Closed", stages.Count, true));
+        stages.Add(new PipelineStageInfo(Key(LeadStage.Lost), "Lost", stages.Count, true));
+        return stages;
+    }
+
     public static IReadOnlyList<PipelineStageAdminInfo> GetAllForAdmin(
         IReadOnlyList<PipelineStageSetting> configuration,
         IReadOnlyDictionary<LeadStage, int> openLeadCounts) =>
@@ -134,12 +154,17 @@ public static class PipelineStageDefinition
         if (stage is LeadStage.Closed or LeadStage.Lost)
             return null;
 
-        var currentIndex = activeStages.IndexOf(stage);
-        if (currentIndex < 0)
+        var current = configuration.FirstOrDefault(item => item.Stage == stage);
+        if (current is null)
             return null;
-        return currentIndex == activeStages.Count - 1
-            ? LeadStage.Closed
-            : activeStages[currentIndex + 1];
+        var nextActive = configuration
+            .Where(item => item.IsActive && item.SortOrder > current.SortOrder)
+            .OrderBy(item => item.SortOrder)
+            .Select(item => (LeadStage?)item.Stage)
+            .FirstOrDefault();
+        if (nextActive is not null)
+            return nextActive.Value;
+        return current.IsActive ? LeadStage.Closed : activeStages[^1];
     }
 
     public static string GetDisplayName(LeadStage stage, IReadOnlyList<PipelineStageSetting> configuration) =>
@@ -169,6 +194,8 @@ public static class PipelineStageDefinition
 
 public static class PipelineStageConfigJson
 {
+    public const string SettingKey = "PipelineStages";
+
     public static JsonSerializerOptions Options { get; } = new()
     {
         Converters = { new JsonStringEnumConverter() }
@@ -179,4 +206,35 @@ public static class PipelineStageConfigJson
 
     public static string Serialize(PipelineStageConfigHistory history) =>
         JsonSerializer.Serialize(history, Options);
+
+    public static bool TryReadCurrentConfiguration(
+        string? json,
+        out IReadOnlyList<PipelineStageSetting> configuration)
+    {
+        if (json is null)
+        {
+            configuration = PipelineStageDefinition.Defaults;
+            return true;
+        }
+
+        try
+        {
+            var history = Deserialize(json);
+            if (history?.History is null || history.History.Count == 0
+                || history.History.Any(version => version is null
+                    || PipelineStageDefinition.Validate(version.Stages) is not null))
+            {
+                configuration = PipelineStageDefinition.Defaults;
+                return false;
+            }
+
+            configuration = history.History.OrderBy(version => version.Version).Last().Stages;
+            return true;
+        }
+        catch (JsonException)
+        {
+            configuration = PipelineStageDefinition.Defaults;
+            return false;
+        }
+    }
 }

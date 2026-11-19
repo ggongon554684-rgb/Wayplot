@@ -58,6 +58,38 @@ public sealed class PipelineStageConfigurationTests
     }
 
     [Fact]
+    public void Inactive_stage_with_open_leads_is_shown_and_can_move_to_the_next_active_stage()
+    {
+        var configuration = PipelineStageDefinition.Defaults
+            .Select(stage => stage with
+            {
+                IsActive = stage.Stage != LeadStage.Viewing && stage.IsActive
+            })
+            .ToList();
+        var stages = PipelineStageDefinition.GetStagesForBoard(
+            configuration,
+            new HashSet<LeadStage> { LeadStage.Viewing });
+
+        Assert.Contains(stages, stage =>
+            stage.Key == "Viewing" && stage.Name == "Viewing (inactive)");
+        Assert.Equal(LeadStage.Negotiation, PipelineStageDefinition.Next(LeadStage.Viewing, configuration));
+    }
+
+    [Fact]
+    public void Inactive_stage_after_the_active_positions_can_move_to_the_closing_stage()
+    {
+        var configuration = PipelineStageDefinition.Defaults
+            .Select(stage => stage with
+            {
+                SortOrder = stage.Stage == LeadStage.Custom4 ? 6 : stage.SortOrder,
+                IsActive = stage.Stage == LeadStage.Contacted
+            })
+            .ToList();
+
+        Assert.Equal(LeadStage.Contacted, PipelineStageDefinition.Next(LeadStage.Custom4, configuration));
+    }
+
+    [Fact]
     public void Names_must_be_unique_ignoring_case_and_have_one_to_thirty_characters()
     {
         var duplicateNames = PipelineStageDefinition.Defaults.ToList();

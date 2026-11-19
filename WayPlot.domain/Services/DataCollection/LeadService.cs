@@ -360,7 +360,15 @@ public sealed class LeadService(
         var staff = await uow.Staff.ListByIdsAsync(staffIds);
         var staffNames = staff.ToDictionary(item => item.Id, item => item.FullName);
         var columns = new List<PipelineColumnDto>();
-        foreach (var stageInfo in pipelineStages.GetStages())
+        var configuration = pipelineStages.GetConfiguration();
+        var activeStages = configuration.Where(stage => stage.IsActive)
+            .Select(stage => stage.Stage).ToHashSet();
+        var inactiveStagesWithLeads = leads
+            .Where(lead => lead.Stage is not (LeadStage.Closed or LeadStage.Lost)
+                && !activeStages.Contains(lead.Stage))
+            .Select(lead => lead.Stage)
+            .ToHashSet();
+        foreach (var stageInfo in PipelineStageDefinition.GetStagesForBoard(configuration, inactiveStagesWithLeads))
         {
             if (!Enum.TryParse<LeadStage>(stageInfo.Key, out var stage))
                 continue;
@@ -753,70 +761,125 @@ public sealed class LeadService(
         if (!permission.Ok)
             return LeadResult.Fail(permission.Message);
 
-        await pipelineStages.EnsureLoadedAsync();
         await using var uow = uowFactory.Create();
+        LeadResult? result = null;
+        LeadStage? movedFrom = null;
+        Guid movedLeadId = Guid.Empty;
+        var movedAtUtc = default(DateTime);
 
-        var lead = await uow.Leads.GetAsync(request.LeadId);
-        if (lead is null)
-            return LeadResult.Fail("That lead was not found.");
-
-        var leadPermission = access.RequireLeadMutation(lead, "move this lead's stage");
-        if (!leadPermission.Ok)
-            return LeadResult.Fail(leadPermission.Message);
-
-        // Check first so the agent gets a friendly message. The database index is only the safety net.
-        var anotherHoldsParcel = request.ToStage == LeadStage.Negotiation
-            && await uow.Leads.AnotherLeadInNegotiationAsync(lead.ParcelId, lead.Id);
-
-        var targetName = pipelineStages.GetDisplayName(request.ToStage);
-        var rule = PipelineRules.CanMove(
-            lead,
-            request.ToStage,
-            PipelineRules.Next(lead.Stage, pipelineStages.GetConfiguration()),
-            anotherHoldsParcel,
-            targetName,
-            pipelineStages.GetDisplayName(LeadStage.Negotiation));
-        if (!rule.Ok)
-            return LeadResult.Fail(rule.Message);
-
-        if (request.OfferAmount is <= 0)
-            return LeadResult.Fail("The offer must be more than zero.");
-
-        var note = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim();
-        if (request.ToStage == LeadStage.Lost && note is null)
-            return LeadResult.Fail("Enter a note describing why the lead was lost.");
-
-        var from = lead.Stage;
-        var now = clock.UtcNow;
-
-        lead.Stage = request.ToStage;
-        lead.LastActivityAtUtc = now;
-        if (request.OfferAmount is { } offer)
-            lead.OfferAmount = offer;
-        if (request.ToStage == LeadStage.Lost)
-            lead.LostReason = string.IsNullOrWhiteSpace(request.LostReason)
-                ? note
-                : request.LostReason.Trim();
-
-        uow.StageHistories.Add(new StageHistory
+        try
         {
-            LeadId = lead.Id,
-            FromStage = from,
-            ToStage = request.ToStage,
-            ChangedAtUtc = now,
-            ChangedByStaffId = user.UserId,
-            Note = note
-        });
+            await uow.ExecuteInTransactionAsync(async () =>
+            {
+                if (!await uow.AcquirePipelineStagesLockAsync())
+                {
+                    result = LeadResult.Fail("The pipeline stages were just changed. Refresh and try again.");
+                    return;
+                }
 
-        await uow.SaveAsync();
-        await events.DispatchAsync(new LeadStageChanged(lead.Id, from, request.ToStage, now));
+                var setting = await uow.Settings.GetByKeyAsync(PipelineStageConfigJson.SettingKey);
+                if (!PipelineStageConfigJson.TryReadCurrentConfiguration(setting?.Value, out var configuration))
+                {
+                    result = LeadResult.Fail("The pipeline stages were just changed. Refresh and try again.");
+                    return;
+                }
 
-        return LeadResult.Success(ToDto(lead), $"Moved to {targetName}.");
+                var lead = await uow.Leads.GetAsync(request.LeadId);
+                if (lead is null)
+                {
+                    result = LeadResult.Fail("That lead was not found.");
+                    return;
+                }
+
+                var leadPermission = access.RequireLeadMutation(lead, "move this lead's stage");
+                if (!leadPermission.Ok)
+                {
+                    result = LeadResult.Fail(leadPermission.Message);
+                    return;
+                }
+
+                var nextStage = PipelineStageDefinition.Next(lead.Stage, configuration);
+                var stageRuleFailed = lead.Stage is not (LeadStage.Closed or LeadStage.Lost)
+                    && request.ToStage is not (LeadStage.Lost or LeadStage.Closed)
+                    && nextStage != request.ToStage;
+                if (stageRuleFailed)
+                {
+                    result = LeadResult.Fail("The pipeline stages were just changed. Refresh and try again.");
+                    return;
+                }
+
+                var anotherHoldsParcel = request.ToStage == LeadStage.Negotiation
+                    && await uow.Leads.AnotherLeadInNegotiationAsync(lead.ParcelId, lead.Id);
+                var targetName = PipelineStageDefinition.GetDisplayName(request.ToStage, configuration);
+                var rule = PipelineRules.CanMove(
+                    lead,
+                    request.ToStage,
+                    nextStage,
+                    anotherHoldsParcel,
+                    targetName,
+                    PipelineStageDefinition.GetDisplayName(LeadStage.Negotiation, configuration));
+                if (!rule.Ok)
+                {
+                    result = LeadResult.Fail(rule.Message);
+                    return;
+                }
+
+                if (request.OfferAmount is <= 0)
+                {
+                    result = LeadResult.Fail("The offer must be more than zero.");
+                    return;
+                }
+
+                var note = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim();
+                if (request.ToStage == LeadStage.Lost && note is null)
+                {
+                    result = LeadResult.Fail("Enter a note describing why the lead was lost.");
+                    return;
+                }
+
+                movedFrom = lead.Stage;
+                movedAtUtc = clock.UtcNow;
+                movedLeadId = lead.Id;
+                lead.Stage = request.ToStage;
+                lead.LastActivityAtUtc = movedAtUtc;
+                if (request.OfferAmount is { } offer)
+                    lead.OfferAmount = offer;
+                if (request.ToStage == LeadStage.Lost)
+                    lead.LostReason = string.IsNullOrWhiteSpace(request.LostReason)
+                        ? note
+                        : request.LostReason.Trim();
+
+                uow.StageHistories.Add(new StageHistory
+                {
+                    LeadId = lead.Id,
+                    FromStage = movedFrom.Value,
+                    ToStage = request.ToStage,
+                    ChangedAtUtc = movedAtUtc,
+                    ChangedByStaffId = user.UserId,
+                    Note = note
+                });
+
+                await uow.SaveAsync();
+                result = LeadResult.Success(
+                    ToDto(lead, configuration),
+                    $"Moved to {targetName}.");
+            });
+        }
+        catch (DealLifecycleConcurrencyConflictException)
+        {
+            return LeadResult.Fail("This lead changed concurrently. Refresh and try again.");
+        }
+
+        if (movedFrom is { } from)
+            await events.DispatchAsync(new LeadStageChanged(movedLeadId, from, request.ToStage, movedAtUtc));
+        return result ?? LeadResult.Fail("The lead stage could not be changed. Refresh and try again.");
     }
 
-    private LeadDto ToDto(Lead l) => new(
+    private LeadDto ToDto(Lead l) => ToDto(l, pipelineStages.GetConfiguration());
+
+    private static LeadDto ToDto(Lead l, IReadOnlyList<PipelineStageSetting> configuration) => new(
         l.Id, l.ContactId, l.Contact.FullName, l.Contact.Phone, l.Contact.Email, l.Contact.Source,
         l.Contact.ConsentSms, l.Contact.ConsentEmail, l.ParcelId, l.Parcel.Label, l.Stage,
-        pipelineStages.GetDisplayName(l.Stage),
+        PipelineStageDefinition.GetDisplayName(l.Stage, configuration),
         l.CloseRequested, l.OfferAmount, l.LostReason, l.LastActivityAtUtc);
 }

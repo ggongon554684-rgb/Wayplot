@@ -21,7 +21,7 @@
 | Switch lot | `LeadService.SwitchLotAsync(Guid, Guid, string?)` | Agent/Admin | Eligible open lead only; creates new lead and loses old lead in one transaction. |
 | Pipeline | `LeadService.GetPipelineBoardAsync(PipelineFilter)` | Scoped roles | `IPipelineStageProvider` supplies New, active configurable stages by sort order, Closed, Lost; Closed/Lost default to last 30 days. |
 | Allowed moves | `LeadService.GetAllowedMovesAsync(Guid)` | Scoped roles | The provider's position defines the next one-step move; Lost remains available under its existing rule and Closed remains the deal request flow. |
-| Pipeline configuration | `PipelineConfigService.GetAsync`, `GetAllForAdminAsync`, `SaveAsync` | Pipeline-readable roles / Tenant Admin saves | Stores versioned history in Setting `PipelineStages`; JSON stage keys are text. New is first, Closed/Lost are fixed last, and the last active configurable stage is the closing stage. A stage with open leads cannot be switched off; at least one configurable stage stays active. Save uses the Setting Version token and raises `PipelineConfigChanged`. |
+| Pipeline configuration | `PipelineConfigService.GetAsync`, `GetAllForAdminAsync`, `SaveAsync` | Pipeline-readable roles / Tenant Admin saves | Stores versioned history in Setting `PipelineStages`; JSON stage keys are text. New is first, Closed/Lost are fixed last, and the last active configurable stage is the closing stage. A stage with open leads cannot be switched off; at least one configurable stage stays active. Save uses the Setting Version token and raises `PipelineConfigChanged`. Saves, stage moves and Closed requests serialize on a tenant-database transaction lock; the save checks SQL open-lead counts and writes the Setting under that lock. |
 | Timeline | `LeadService.GetLeadTimelineAsync(Guid)` | Scoped roles | Merges history, interactions and existing deal fields, newest first and local time. |
 | Reassignment | `LeadService.ReassignLeadAsync`, `ReassignContactAsync`, `ReassignAllFromAgentAsync` | Tenant Admin | Active Agents only; Tier C cross-branch moves refuse; history/deals/payouts are preserved. |
 | Reassignment preview | `LeadService.PreviewReassignAllFromAgentAsync(Guid, Guid)` | Tenant Admin | Read-only count preview for the bulk confirmation; uses the same active-Agent and Tier C branch checks as bulk reassignment. |
@@ -56,11 +56,19 @@
 - Add/Switch lot: `AddLeadForContactAsync`, `SwitchLotAsync`.
 - Pipeline and timeline: `GetPipelineBoardAsync`, `GetAllowedMovesAsync`, `GetLeadTimelineAsync`.
 - Pipeline stage settings are managed by Tenant Admin in the Pipeline tab. The provider caches settings per tenant session, resolves inactive stage names for history, and refreshes on `PipelineConfigChanged` and sign-out. Defaults are Contacted, Viewing, and Negotiation active in their existing order, followed by four inactive custom slots named Stage 1 through Stage 4. Configurable names are 1–30 characters and unique ignoring case.
+- If an open lead is found in a configurable stage that is now inactive, the board keeps it visible in a marked inactive column. Its next move is the next active stage after its configured position, or the closing stage if there is no later active stage.
 - Request Closed is allowed only from the last active configurable stage, both when offered as an allowed move and when `DealService.RequestClosedAsync` validates it. Stage progression follows configured position rather than enum value or stage name.
 - Admin team tools: staff list/mutations, `ListBranchesAsync`, reassignment preview and the lead/contact/parcel/bulk reassignment methods.
 - Tenant Admin screens: Team and Review; commission rules and profile dialogs are role-gated by their services. Invite and role changes are unavailable until the account service exists.
 - Company profile reads are available to Agent, Branch Manager and Tenant Admin. Only Tenant Admin can save.
 - There is no cancel-request queue in this application; confirmed-deal cancellation is a direct Tenant Admin action, not a queued request.
+
+## AD2 fixes
+
+- Stage switch-off race: `PipelineConfigService.SaveAsync` holds one tenant-database transaction and the `WayPlot:PipelineStages` application lock while it checks the Setting `Version`, counts open leads with SQL across the whole tenant, and writes the Setting. `LeadService.MoveStageAsync` and `DealService.RequestClosedAsync` take the same lock, read the `PipelineStages` Setting from the database, and validate the target stage, `Next` and the closing-stage rule against that fresh copy. A failed stage validation returns "The pipeline stages were just changed. Refresh and try again." The existing `PipelineConfigChanged` and per-change domain events are still dispatched.
+- An open lead left in a configurable stage that is now inactive stays on the board in a marked inactive column and moves to the next active position, or the closing stage when no later active stage exists.
+- `AppLog.Error` redacts password, pwd, user id, uid, token and apikey values, and whole connection strings, from exception text while keeping the exception type, message and stack. `SensitiveValueRedactor.Redact` is a pure, database-free function.
+- Every async void handler in the WinForms project keeps all work inside a try/catch and shows a short, non-sensitive failure message.
 
 ## Worked deal summary examples
 

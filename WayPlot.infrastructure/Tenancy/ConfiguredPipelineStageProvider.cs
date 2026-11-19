@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Text.Json;
 using WayPlot.domain.Common;
 using WayPlot.domain.Contracts;
 using WayPlot.domain.Events;
@@ -15,7 +14,7 @@ public sealed class ConfiguredPipelineStageProvider(
     TenantAccessPolicy access)
     : IPipelineStageProvider, IDomainEventHandler<PipelineConfigChanged>
 {
-    private const string SettingKey = "PipelineStages";
+    private const string SettingKey = PipelineStageConfigJson.SettingKey;
     private readonly ConcurrentDictionary<Guid, IReadOnlyList<PipelineStageSetting>> _cache = new();
     private readonly ConcurrentDictionary<Guid, SemaphoreSlim> _loadGates = new();
 
@@ -88,24 +87,9 @@ public sealed class ConfiguredPipelineStageProvider(
 
     private static IReadOnlyList<PipelineStageSetting> ReadConfiguration(string? json)
     {
-        if (json is null)
-            return PipelineStageDefinition.Defaults;
-
-        try
-        {
-            var history = PipelineStageConfigJson.Deserialize(json);
-            if (history?.History is null || history.History.Count == 0
-                || history.History.Any(version => version is null
-                    || PipelineStageDefinition.Validate(version.Stages) is not null))
-                throw new JsonException("The pipeline configuration history is empty or invalid.");
-
-            var current = history.History.OrderBy(version => version.Version).Last();
-            return current.Stages;
-        }
-        catch (JsonException ex)
-        {
-            throw new InvalidDataException(
-                "Pipeline stage configuration could not be read. Reload the pipeline or contact your Tenant Admin.", ex);
-        }
+        if (PipelineStageConfigJson.TryReadCurrentConfiguration(json, out var configuration))
+            return configuration;
+        throw new InvalidDataException(
+            "Pipeline stage configuration could not be read. Reload the pipeline or contact your Tenant Admin.");
     }
 }

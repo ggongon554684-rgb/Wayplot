@@ -1,6 +1,8 @@
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using System.Data;
+using System.Globalization;
 using WayPlot.domain.Common;
 using WayPlot.domain.Entities;
 using WayPlot.domain.Repositories;
@@ -127,6 +129,31 @@ internal sealed class TenantUnitOfWork : ITenantUnitOfWork
         {
             throw new StaffConcurrencyConflictException(ex);
         }
+    }
+
+    public async Task<bool> AcquirePipelineStagesLockAsync()
+    {
+        var transaction = _db.Database.CurrentTransaction?.GetDbTransaction()
+            ?? throw new InvalidOperationException("The pipeline stages lock requires an active transaction.");
+        await using var command = _db.Database.GetDbConnection().CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            DECLARE @result int;
+            EXEC @result = sys.sp_getapplock
+                @Resource = @resource,
+                @LockMode = N'Exclusive',
+                @LockOwner = N'Transaction',
+                @LockTimeout = 15000;
+            SELECT @result;
+            """;
+        var resource = command.CreateParameter();
+        resource.ParameterName = "@resource";
+        resource.Value = "WayPlot:PipelineStages";
+        command.Parameters.Add(resource);
+        var result = await command.ExecuteScalarAsync();
+        return result is not null
+            && result != DBNull.Value
+            && Convert.ToInt32(result, CultureInfo.InvariantCulture) >= 0;
     }
 
     public ValueTask DisposeAsync() => _db.DisposeAsync();

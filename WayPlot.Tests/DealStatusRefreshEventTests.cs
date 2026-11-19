@@ -107,6 +107,7 @@ public sealed class DealStatusRefreshEventTests
 
         public Task ExecuteInTransactionAsync(Func<Task> operation) => operation();
         public Task ExecuteInTransactionAsync(Func<Task> operation, IsolationLevel isolationLevel) => ExecuteInTransactionAsync(operation);
+        public Task<bool> AcquirePipelineStagesLockAsync() => Task.FromResult(true);
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
         private sealed class DealRepository(IReadOnlyList<Deal> deals, Action<Deal> touch) : IDealRepository
