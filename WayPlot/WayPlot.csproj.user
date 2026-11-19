@@ -4,11 +4,26 @@
     <Compile Update="LoginForm.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Update="UI\DealCardControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Update="UI\LeadCardControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
     <Compile Update="UI\LeafletMapControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Update="UI\MoneyBarControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Update="UI\ParcelPickerControl.cs">
       <SubType>UserControl</SubType>
     </Compile>
     <Compile Update="UI\PillTabBar.cs">
       <SubType>Component</SubType>
+    </Compile>
+    <Compile Update="UI\PipelineColumnControl.cs">
+      <SubType>UserControl</SubType>
     </Compile>
     <Compile Update="UI\RoundedPanel.cs">
       <SubType>Component</SubType>
@@ -18,6 +33,12 @@
     </Compile>
     <Compile Update="UI\StatusChip.cs">
       <SubType>Component</SubType>
+    </Compile>
+    <Compile Update="Views\AddLeadDialog.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Update="Views\AdminReviewView.cs">
+      <SubType>UserControl</SubType>
     </Compile>
     <Compile Update="Views\AttachLeadDialog.cs">
       <SubType>Form</SubType>
@@ -30,6 +51,12 @@
     </Compile>
     <Compile Update="Views\CommissionsView.cs">
       <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Update="Views\CompanyProfileDialog.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Update="Views\ConfirmClosedDialog.cs">
+      <SubType>Form</SubType>
     </Compile>
     <Compile Update="Views\ContactDialog.cs">
       <SubType>Form</SubType>
@@ -46,14 +73,8 @@
     <Compile Update="Views\DealsView.cs">
       <SubType>UserControl</SubType>
     </Compile>
-    <Compile Update="Views\InteractionsView.cs">
-      <SubType>UserControl</SubType>
-    </Compile>
     <Compile Update="Views\LeadFileDialog.cs">
       <SubType>Form</SubType>
-    </Compile>
-    <Compile Update="Views\LeadsView.cs">
-      <SubType>UserControl</SubType>
     </Compile>
     <Compile Update="Views\LogInteractionDialog.cs">
       <SubType>Form</SubType>
@@ -63,6 +84,9 @@
     </Compile>
     <Compile Update="Views\ComingNextView.cs">
       <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Update="Views\MoveStageDialog.cs">
+      <SubType>Form</SubType>
     </Compile>
     <Compile Update="Views\OwnerDialog.cs">
       <SubType>Form</SubType>
@@ -76,6 +100,9 @@
     <Compile Update="Views\PhotoViewerDialog.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Update="Views\PipelineView.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
     <Compile Update="Views\ReassignDialog.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -83,6 +110,15 @@
       <SubType>Form</SubType>
     </Compile>
     <Compile Update="Views\ReturnPaymentDialog.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Update="Views\SwitchLotDialog.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Update="Views\TeamAdminView.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Update="Views\TerminateDealDialog.cs">
       <SubType>Form</SubType>
     </Compile>
   </ItemGroup>

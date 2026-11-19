@@ -23,7 +23,7 @@ namespace WayPlot.UI
             layout.SuspendLayout();
             SuspendLayout();
             layout.ColumnCount = 1;
-            layout.Dock = DockStyle.Fill;
+            layout.Dock = DockStyle.Top;
             layout.AutoSize = true;
             layout.Padding = new Padding(10);
             layout.Controls.Add(lblContact, 0, 0);
@@ -51,7 +51,10 @@ namespace WayPlot.UI
             Cursor = Cursors.Hand;
             Controls.Add(layout);
             Name = "LeadCardControl";
-            Size = new Size(260, 190);
+            // Height follows the content (admin cards show Agent, Closed and Deal lines); width is set by the column.
+            AutoSize = true;
+            AutoSizeMode = AutoSizeMode.GrowOnly;
+            Size = new Size(260, 130);
             layout.ResumeLayout(false);
             layout.PerformLayout();
             ResumeLayout(false);

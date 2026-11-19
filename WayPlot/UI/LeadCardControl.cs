@@ -11,16 +11,56 @@ public partial class LeadCardControl : UserControl
     {
         InitializeComponent();
         ApplyTheme();
-        MouseDown += (_, args) => AsyncUiEvent.Run(this, async () =>
+        // The labels and the inner layout cover the whole card, so they must forward the mouse
+        // events too; otherwise clicking the card text selects nothing and cannot start a drag.
+        WireMouse(this);
+    }
+
+    private Point _pressPoint;
+    private bool _pressArmed;
+
+    private void WireMouse(Control control)
+    {
+        control.MouseDown += (_, args) =>
         {
-            if (args.Button == MouseButtons.Left && Card is not null && DragStarting is not null)
-            {
-                if (DragStarting is not null)
-                    await DragStarting(Card);
-                DoDragDrop(Card.LeadId, DragDropEffects.Move);
-            }
-        }, "Could not start the lead drag. Try again.");
-        Click += (_, _) => Selected?.Invoke(Card);
+            if (args.Button != MouseButtons.Left) return;
+            _pressPoint = Cursor.Position;
+            _pressArmed = true;
+        };
+        control.MouseMove += (_, _) => TryStartDrag();
+        control.MouseUp += (_, _) => _pressArmed = false;
+        if (control is not Button)
+            control.Click += (_, _) => { if (Card is not null) Selected?.Invoke(Card); };
+        foreach (Control child in control.Controls)
+        {
+            if (child is Button) continue;
+            WireMouse(child);
+        }
+    }
+
+    // A plain click selects the card; only a real drag (mouse moved past the system drag size) starts a move.
+    private void TryStartDrag()
+    {
+        if (!_pressArmed || Card is null || DragStarting is null) return;
+        if ((MouseButtons & MouseButtons.Left) == 0)
+        {
+            _pressArmed = false;
+            return;
+        }
+        var drag = SystemInformation.DragSize;
+        var now = Cursor.Position;
+        if (Math.Abs(now.X - _pressPoint.X) < drag.Width / 2 && Math.Abs(now.Y - _pressPoint.Y) < drag.Height / 2)
+            return;
+        _pressArmed = false;
+        AsyncUiEvent.Run(this, StartDragAsync, "Could not start the lead drag. Try again.");
+    }
+
+    private async Task StartDragAsync()
+    {
+        if (Card is null || DragStarting is null) return;
+        await DragStarting(Card);
+        if ((MouseButtons & MouseButtons.Left) == 0) return;   // released while the allowed moves were loading
+        DoDragDrop(Card.LeadId, DragDropEffects.Move);
     }
 
     [Browsable(false)]
@@ -44,7 +84,7 @@ public partial class LeadCardControl : UserControl
         Card = card;
         lblContact.Text = card.ContactName;
         lblParcel.Text = card.ParcelLabel;
-        lblStageInfo.Text = $"{card.DaysInStage} days in stage";
+        lblStageInfo.Text = card.DaysInStage == 1 ? "1 day in stage" : $"{card.DaysInStage} days in stage";
         lblActivity.Text = $"Last activity {Relative(card.LastActivityAt)}";
         lblAgent.Visible = isAdmin;
         lblAgent.Text = $"Agent: {card.AgentName ?? "Unassigned"}";

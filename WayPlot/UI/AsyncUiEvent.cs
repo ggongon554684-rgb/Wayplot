@@ -8,8 +8,9 @@ internal static class AsyncUiEvent
         {
             await action();
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            AppLog.Error(failureMessage, ex);
             if (!owner.IsDisposed)
                 MessageBox.Show(owner, failureMessage, "WayPlot CRM", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }

@@ -7,9 +7,12 @@ namespace WayPlot.Views
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing && (components != null))
+            if (disposing)
             {
-                components.Dispose();
+                components?.Dispose();
+                // _searchTimer is not registered in components (no container passed),
+                // so dispose it explicitly to avoid a timer leak.
+                _searchTimer?.Dispose();
             }
             base.Dispose(disposing);
         }

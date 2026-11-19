@@ -19,13 +19,18 @@ public partial class PipelineView : UserControl, IPipelineView
     public PipelineView()
     {
         InitializeComponent();
+        splitDetail.Panel2Collapsed = false;
+        splitDetail.SplitterDistance = 420;
+        splitDetail.Panel1MinSize = 420;
+        splitDetail.Panel2MinSize = 330;
+        splitDetail.Panel2Collapsed = true;
         edgeScrollTimer = new System.Windows.Forms.Timer { Interval = 80 };
         edgeScrollTimer.Tick += (_, _) => ScrollBoardFromMouse();
         ApplyTheme();
         txtSearch.TextChanged += (_, _) => { filterTimer.Stop(); filterTimer.Start(); };
         filterTimer.Tick += (_, _) => { filterTimer.Stop(); _ = RunUiAsync(ReloadAsync); };
-        cboParcel.SelectedIndexChanged += (_, _) => _ = RunUiAsync(ReloadAsync);
-        cboAgent.SelectedIndexChanged += (_, _) => _ = RunUiAsync(ReloadAsync);
+        cboParcel.SelectedIndexChanged += (_, _) => { if (_filterLoading == 0) _ = RunUiAsync(ReloadAsync); };
+        cboAgent.SelectedIndexChanged += (_, _) => { if (_filterLoading == 0) _ = RunUiAsync(ReloadAsync); };
         chkOlder.CheckedChanged += (_, _) => _ = RunUiAsync(ReloadAsync);
         splitDetail.SplitterMoved += (_, _) => SaveDetailWidth();
         btnMove.Click += (_, _) => _ = RunUiAsync(OpenMoveMenuAsync);
@@ -37,6 +42,14 @@ public partial class PipelineView : UserControl, IPipelineView
         btnRequestClosed.Click += (_, _) => _ = RunUiAsync(RequestClosedAsync);
         btnSwitchLot.Click += (_, _) => _ = RunUiAsync(SwitchLotAsync);
         btnCloseDetail.Click += (_, _) => CloseDetail();
+
+        // Keep pipeline column heights in sync when the board panel is resized.
+        boardPanel.Resize += (_, _) =>
+        {
+            var h = Math.Max(400, boardPanel.ClientSize.Height);
+            foreach (Control col in boardPanel.Controls)
+                col.Height = h;
+        };
     }
 
     [Browsable(false)]
@@ -70,8 +83,9 @@ public partial class PipelineView : UserControl, IPipelineView
                 await ReloadAsync();
             }
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            AppLog.Error("PipelineView.OnLoad", ex);
             if (!IsDisposed)
                 ShowStatus("Could not load the pipeline. Try again.", true);
         }
@@ -103,32 +117,51 @@ public partial class PipelineView : UserControl, IPipelineView
         ButtonStyle.Apply(btnCloseDetail, false);
     }
 
+    // Incremented while filter combos are being populated so the SelectedIndexChanged
+    // handlers ignore those programmatic changes and do not trigger a redundant reload.
+    private int _filterLoading;
+
     private async Task LoadFiltersAsync()
     {
         if (_presenter is null) return;
-        var parcels = await _presenter.ParcelsAsync();
-        if (parcels.Ok && parcels.Value is not null)
+
+        _filterLoading++;
+        try
         {
-            cboParcel.Items.Clear();
-            cboParcel.Items.Add(new ParcelFilter(Guid.Empty, "All parcels"));
-            foreach (var parcel in parcels.Value)
-                cboParcel.Items.Add(new ParcelFilter(parcel.Id, parcel.Label));
-            cboParcel.DisplayMember = nameof(ParcelFilter.Name);
-            cboParcel.SelectedIndex = 0;
-        }
-        if (_presenter.IsAdmin)
-        {
-            var staff = await _presenter.StaffAsync();
-            if (staff.Ok && staff.Value is not null)
+            var parcels = await _presenter.ParcelsAsync();
+            if (parcels.Ok && parcels.Value is not null)
             {
-                cboAgent.Items.Clear();
-                cboAgent.Items.Add(new StaffFilter(Guid.Empty, "All agents"));
-                foreach (var member in staff.Value.Where(item => item.Role == Roles.Agent))
-                    cboAgent.Items.Add(new StaffFilter(member.Id, member.DisplayName));
-                cboAgent.DisplayMember = nameof(StaffFilter.Name);
-                cboAgent.SelectedIndex = 0;
-                cboAgent.Visible = true;
+                cboParcel.Items.Clear();
+                cboParcel.Items.Add(new ParcelFilter(Guid.Empty, "All parcels"));
+                foreach (var parcel in parcels.Value)
+                    cboParcel.Items.Add(new ParcelFilter(parcel.Id, parcel.Label));
+                cboParcel.DisplayMember = nameof(ParcelFilter.Name);
+                cboParcel.SelectedIndex = 0;
             }
+            else
+            {
+                // Show a visible hint so the user knows the parcel filter is unavailable.
+                ShowStatus("Parcel filter could not be loaded. Pipeline may still load below.", true);
+            }
+
+            if (_presenter.IsAdmin)
+            {
+                var staff = await _presenter.StaffAsync();
+                if (staff.Ok && staff.Value is not null)
+                {
+                    cboAgent.Items.Clear();
+                    cboAgent.Items.Add(new StaffFilter(Guid.Empty, "All agents"));
+                    foreach (var member in staff.Value.Where(item => item.Role == Roles.Agent))
+                        cboAgent.Items.Add(new StaffFilter(member.Id, member.DisplayName));
+                    cboAgent.DisplayMember = nameof(StaffFilter.Name);
+                    cboAgent.SelectedIndex = 0;
+                    cboAgent.Visible = true;
+                }
+            }
+        }
+        finally
+        {
+            _filterLoading--;
         }
     }
 
@@ -150,13 +183,14 @@ public partial class PipelineView : UserControl, IPipelineView
         var selectedId = _selectedLeadId;
         boardPanel.SuspendLayout();
         boardPanel.Controls.Clear();
+        var colHeight = Math.Max(400, boardPanel.ClientSize.Height);
         foreach (var column in board.Columns)
         {
             var control = new PipelineColumnControl
             {
-                Width = 280,
-                Height = boardPanel.ClientSize.Height,
-                Dock = DockStyle.Left,
+                Width = 300,
+                Height = colHeight,
+                Margin = new Padding(0, 0, 8, 0),
                 SharedToolTip = _tooltip
             };
             control.SetColumn(column, _presenter?.IsAdmin == true);
@@ -402,8 +436,9 @@ public partial class PipelineView : UserControl, IPipelineView
         {
             await action();
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            AppLog.Error("PipelineView.RunUiAsync", ex);
             if (!IsDisposed)
                 ShowStatus("The pipeline action could not be completed. Try again.", true);
         }
@@ -483,6 +518,13 @@ public partial class PipelineView : UserControl, IPipelineView
         catch { }
     }
 
-    private readonly record struct ParcelFilter(Guid Id, string Name);
-    private readonly record struct StaffFilter(Guid Id, string Name);
+    private sealed record ParcelFilter(Guid Id, string Name)
+    {
+        public override string ToString() => Name;
+    }
+
+    private sealed record StaffFilter(Guid Id, string Name)
+    {
+        public override string ToString() => Name;
+    }
 }

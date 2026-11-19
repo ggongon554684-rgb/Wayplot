@@ -64,6 +64,8 @@ namespace WayPlot.Views
             txtSearch.MinimumSize = new Size(220, 30);
             cboParcel.MinimumSize = new Size(180, 30);
             cboAgent.MinimumSize = new Size(180, 30);
+            cboParcel.DropDownStyle = ComboBoxStyle.DropDownList;
+            cboAgent.DropDownStyle = ComboBoxStyle.DropDownList;
             cboAgent.Visible = false;
             chkOlder.Text = "Include older Closed and Lost";
             chkOlder.AutoSize = true;
@@ -74,8 +76,6 @@ namespace WayPlot.Views
             splitDetail.Dock = DockStyle.Fill;
             splitDetail.Orientation = Orientation.Vertical;
             splitDetail.SplitterWidth = 6;
-            splitDetail.Panel1MinSize = 420;
-            splitDetail.Panel2MinSize = 330;
             splitDetail.Panel1.Controls.Add(boardPanel);
             splitDetail.Panel2.Controls.Add(detailPanel);
             splitDetail.Panel2Collapsed = true;

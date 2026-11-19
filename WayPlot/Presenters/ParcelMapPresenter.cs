@@ -207,7 +207,6 @@ public sealed class ParcelMapPresenter(
     {
         var token = ++_loadToken;
         if (view.IsDisposed) return;
-        _byId.Clear();
         view.ShowMessage("Loading parcels...");
         try
         {
@@ -242,10 +241,25 @@ public sealed class ParcelMapPresenter(
         _selectedParcelId = id;
 
         if (view.IsDisposed) return;
-        if (id is null || !_byId.TryGetValue(id.Value, out var parcel))
+        if (id is null)
         {
             view.ClearParcel();
             return;
+        }
+
+        if (!_byId.TryGetValue(id.Value, out var parcel))
+        {
+            // The map can still display features from the previous load while a refresh is in flight.
+            // Refresh once before treating that click as a missing parcel.
+            await LoadAsync();
+            if (token != _selectionToken || view.IsDisposed)
+                return;
+            if (!_byId.TryGetValue(id.Value, out parcel))
+            {
+                view.ClearParcel();
+                view.ShowMessage("That parcel is no longer available. Reload the map and try again.");
+                return;
+            }
         }
 
         // The parcel's own facts are already loaded, so show them at once. The leads follow.

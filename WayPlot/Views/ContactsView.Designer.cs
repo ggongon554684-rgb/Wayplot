@@ -1,4 +1,4 @@
-﻿#nullable disable
+#nullable disable
 using WayPlot.UI;
 namespace WayPlot.Views
 {
@@ -167,6 +167,13 @@ namespace WayPlot.Views
             btnKindCustomers.Text = "Customers";
             btnKindClients.Text = "Clients";
             btnKindLandowners.Text = "Landowners";
+            // Without AutoSize the buttons stay 75 px wide and the labels clip ("Cust", "Clien", "Land").
+            foreach (var kindButton in new[] { btnKindAll, btnKindCustomers, btnKindClients, btnKindLandowners })
+            {
+                kindButton.AutoSize = true;
+                kindButton.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+                kindButton.Margin = new Padding(0, 0, 8, 0);
+            }
             cboAgent.DropDownStyle = ComboBoxStyle.DropDownList;
             cboAgent.MinimumSize = new Size(180, 0);
             cboAgent.Visible = false;
@@ -176,8 +183,6 @@ namespace WayPlot.Views
             splitMain.Dock = DockStyle.Fill;
             splitMain.Orientation = Orientation.Vertical;
             splitMain.SplitterWidth = 6;
-            splitMain.Panel1MinSize = 420;
-            splitMain.Panel2MinSize = 330;
             splitMain.Panel1.Controls.Add(listContacts);
             splitMain.Panel2.Controls.Add(detailPanel);
             splitMain.Panel2Collapsed = true;
@@ -201,22 +206,31 @@ namespace WayPlot.Views
             detailPanel.Dock = DockStyle.Fill;
             detailPanel.Controls.Add(detailTop);
             detailPanel.Controls.Add(detailScroll);
+            detailPanel.Padding = new Padding(1, 0, 0, 0); // 1-px left border gap
             detailTop.Dock = DockStyle.Top;
-            detailTop.Height = 44;
+            detailTop.Height = 52;
+            detailTop.Padding = new Padding(12, 8, 8, 8);
             detailTop.ColumnCount = 2;
+            detailTop.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            detailTop.ColumnStyles.Add(new ColumnStyle());
             detailTop.Controls.Add(lblDetailName, 0, 0);
             detailTop.Controls.Add(btnCloseDetail, 1, 0);
             lblDetailName.AutoSize = true;
             lblDetailName.Font = Theme.Heading;
             lblDetailName.Dock = DockStyle.Fill;
+            lblDetailName.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
             btnCloseDetail.Text = "Close";
             btnCloseDetail.AutoSize = true;
+            btnCloseDetail.Anchor = AnchorStyles.Right | AnchorStyles.Top;
             detailScroll.Dock = DockStyle.Fill;
             detailScroll.AutoScroll = true;
+            detailScroll.Padding = new Padding(0, 4, 0, 0);
             detailScroll.Controls.Add(detailBody);
             detailBody.Dock = DockStyle.Top;
             detailBody.ColumnCount = 1;
+            detailBody.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
             detailBody.AutoSize = true;
+            detailBody.Padding = new Padding(0, 0, 0, 16);
             //
             // columns
             //

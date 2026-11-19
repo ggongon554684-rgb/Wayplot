@@ -78,7 +78,7 @@ public partial class MainShell : Form
         var title = _tabs.FirstOrDefault(t => t.Key == key)?.Title ?? key;
         Control view = _views.TryGetValue(key, out var create) ? create() : new ComingNextView { Title = title };
         view.Dock = DockStyle.Fill;
-        pnlContent.Controls.Add(view);
+        // Hand the view its hand-off values BEFORE it is added: OnLoad can run as soon as it is added.
         if (view is ContactsView contactsView)
         {
             contactsView.ShowParcelOnMap = ShowParcelOnMap;
@@ -96,6 +96,7 @@ public partial class MainShell : Form
             mapView.PendingParcelId = parcelId;
             _pendingParcelId = null;
         }
+        pnlContent.Controls.Add(view);
     }
 
     private Guid? _pendingParcelId;

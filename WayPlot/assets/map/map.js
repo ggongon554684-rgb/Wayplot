@@ -34,7 +34,10 @@
           if (activeMode) {
             return;
           }
-          L.DomEvent.stopPropagation(event.originalEvent);
+          // stop() prevents the native event from bubbling AND stops Leaflet from
+          // also firing its own map-level "click" (which would trigger mapBackgroundClicked
+          // and immediately clear the inspector we are about to open).
+          L.DomEvent.stop(event);
           selectParcel(parcelId);
           window.chrome.webview.postMessage({ type: "parcelClicked", parcelId });
         });
