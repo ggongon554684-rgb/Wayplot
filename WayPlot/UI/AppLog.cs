@@ -1,3 +1,5 @@
+using WayPlot.domain.Common;
+
 namespace WayPlot.UI;
 
 /// <summary>
@@ -13,7 +15,8 @@ public static class AppLog
 
     public static void Info(string message) => Write("INFO ", message);
 
-    public static void Error(string where, Exception ex) => Write("ERROR", $"{where}: {ex}");
+    public static void Error(string where, Exception ex) =>
+        Write("ERROR", $"{where}: {SensitiveValueRedactor.Redact(ex.ToString())}");
 
     private static void Write(string level, string message)
     {

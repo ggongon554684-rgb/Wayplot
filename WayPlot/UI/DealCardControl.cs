@@ -160,20 +160,22 @@ public partial class DealCardControl : UserControl
 
     private async void TogglePayments()
     {
-        paymentsExpanded = !paymentsExpanded;
-        btnPayments.Text = paymentsExpanded ? "Hide payments" : "Payments";
-        paymentsPanel.Visible = paymentsExpanded;
-        if (!paymentsExpanded || LoadPayments is null) return;
-
         try
         {
+            paymentsExpanded = !paymentsExpanded;
+            btnPayments.Text = paymentsExpanded ? "Hide payments" : "Payments";
+            paymentsPanel.Visible = paymentsExpanded;
+            if (!paymentsExpanded || LoadPayments is null) return;
+
             var payments = await LoadPayments(_deal.DealId);
             paymentsList.Controls.Clear();
             foreach (var payment in payments.OrderByDescending(payment => payment.PaidAtUtc))
                 AddPayment(payment);
         }
-        catch
+        catch (Exception ex)
         {
+            AppLog.Error("DealCardControl.TogglePayments", ex);
+            if (IsDisposed) return;
             paymentsList.Controls.Clear();
             paymentsList.Controls.Add(new Label
             {

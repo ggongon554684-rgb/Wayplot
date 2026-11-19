@@ -214,7 +214,7 @@ public sealed class ParcelMapPresenter(
             if (token != _loadToken || view.IsDisposed) return;
             if (!result.Ok || result.Value is null)
             {
-                view.ShowMessage(result.Message);
+                ClearAfterFailedLoad(token, "Could not load parcels. Refresh and try again.");
                 return;
             }
             var list = result.Value;
@@ -230,8 +230,23 @@ public sealed class ParcelMapPresenter(
         catch (Exception ex)
         {
             if (token == _loadToken && !view.IsDisposed)
-                view.ShowMessage($"Could not load the parcels. {ex.Message}");
+            {
+                WayPlot.UI.AppLog.Error("ParcelMapPresenter.LoadAsync", ex);
+                ClearAfterFailedLoad(token, "Could not load parcels. Refresh and try again.");
+            }
         }
+    }
+
+    private void ClearAfterFailedLoad(int token, string message)
+    {
+        if (token != _loadToken || view.IsDisposed)
+            return;
+
+        _byId.Clear();
+        _selectedParcelId = null;
+        _selectionToken++;
+        view.ClearParcel();
+        view.ShowMessage(message);
     }
 
     /// <summary>Called when the agent clicks a parcel (or clicks empty map, id = null).</summary>

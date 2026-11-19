@@ -17,12 +17,18 @@ public partial class TeamAdminView : UserControl
         ApplyTheme();
         btnInvite.Click += (_, _) => { };
         btnChangeRole.Click += (_, _) => { };
-        btnCompanyProfile.Click += async (_, _) => await OpenCompanyProfileAsync();
-        btnDeactivate.Click += async (_, _) => await SetActiveAsync(false);
-        btnReactivate.Click += async (_, _) => await SetActiveAsync(true);
-        btnChangeBranch.Click += async (_, _) => await ChangeBranchAsync();
-        btnReassign.Click += async (_, _) => await ReassignSelectedAsync();
-        btnReassignAll.Click += async (_, _) => await ReassignAllAsync();
+        btnCompanyProfile.Click += (_, _) =>
+            AsyncUiEvent.Run(this, OpenCompanyProfileAsync, "The company profile could not be opened.");
+        btnDeactivate.Click += (_, _) =>
+            AsyncUiEvent.Run(this, () => SetActiveAsync(false), "The staff account could not be changed.");
+        btnReactivate.Click += (_, _) =>
+            AsyncUiEvent.Run(this, () => SetActiveAsync(true), "The staff account could not be changed.");
+        btnChangeBranch.Click += (_, _) =>
+            AsyncUiEvent.Run(this, ChangeBranchAsync, "The branch could not be changed.");
+        btnReassign.Click += (_, _) =>
+            AsyncUiEvent.Run(this, ReassignSelectedAsync, "The record could not be reassigned.");
+        btnReassignAll.Click += (_, _) =>
+            AsyncUiEvent.Run(this, ReassignAllAsync, "The records could not be reassigned.");
         listStaff.SelectedIndexChanged += (_, _) => UpdateStaffActions();
         cboRecordType.SelectedIndexChanged += (_, _) => UpdateRecordChoices();
         cboRecord.SelectedIndexChanged += (_, _) => UpdateReassignmentActions();
@@ -41,15 +47,16 @@ public partial class TeamAdminView : UserControl
 
     protected override async void OnLoad(EventArgs e)
     {
-        base.OnLoad(e);
-        if (DesignMode || _presenter is null) return;
         try
         {
+            base.OnLoad(e);
+            if (DesignMode || _presenter is null) return;
             await LoadAsync();
         }
         catch (Exception)
         {
-            ShowStatus("The Team screen could not be loaded. Try again.", true);
+            if (!IsDisposed)
+                ShowStatus("The Team screen could not be loaded. Try again.", true);
         }
     }
 
