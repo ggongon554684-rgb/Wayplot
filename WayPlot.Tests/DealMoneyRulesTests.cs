@@ -186,7 +186,9 @@ public sealed class DealMoneyRulesTests
         var timeZone = TimeZoneInfo.Local;
         var fixedTimeProvider = new FixedTimeProvider(
             new DateTimeOffset(localNow, timeZone.GetUtcOffset(localNow)));
-        var service = new DealService(null!, null!, null!, null!, null!, null!, fixedTimeProvider);
+        var service = new DealService(
+            null!, null!, null!, null!, null!, null!, fixedTimeProvider,
+            new DefaultPipelineStageProvider());
 
         // Invoke the domain projection directly, bypassing DealService repository workflows.
         var builder = typeof(DealService).GetMethod("BuildDealSummary", BindingFlags.Instance | BindingFlags.NonPublic)

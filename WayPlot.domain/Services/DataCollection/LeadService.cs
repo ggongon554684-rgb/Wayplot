@@ -29,6 +29,7 @@ public sealed class LeadService(
         if (access.IsAgent && request.AssignedStaffId is { } assignedStaffId && assignedStaffId != access.CurrentStaffId)
             return LeadResult.Fail("Agents can only attach leads assigned to themselves.");
 
+        await pipelineStages.EnsureLoadedAsync();
         var scope = access.GetDataReadScope("contacts and leads");
         if (!scope.Ok)
             return LeadResult.Fail(scope.Message);
@@ -87,6 +88,7 @@ public sealed class LeadService(
         if (!scope.Ok)
             return ServiceResult<IReadOnlyList<LeadDto>>.Fail(scope.Message);
 
+        await pipelineStages.EnsureLoadedAsync();
         await using var uow = uowFactory.Create();
         if (await uow.Parcels.GetAsync(parcelId) is null)
             return ServiceResult<IReadOnlyList<LeadDto>>.Fail("That parcel was not found or has been archived.");
@@ -101,6 +103,7 @@ public sealed class LeadService(
         if (!scope.Ok)
             return ServiceResult<IReadOnlyList<ContactLeadCardDto>>.Fail(scope.Message);
 
+        await pipelineStages.EnsureLoadedAsync();
         await using var uow = uowFactory.Create();
         var leads = await uow.Leads.ListByContactAsync(contactId, scope.Value);
         var staffIds = leads.Where(lead => lead.AssignedStaffId is not null)
@@ -113,6 +116,7 @@ public sealed class LeadService(
             lead.ParcelId,
             lead.Parcel.Label,
             lead.Stage,
+            pipelineStages.GetDisplayName(lead.Stage),
             lead.AssignedStaffId is { } staffId && names.TryGetValue(staffId, out var name)
                 ? name : "Unassigned",
             lead.LastActivityAtUtc)).ToList();
@@ -125,11 +129,13 @@ public sealed class LeadService(
         if (!scope.Ok)
             return ServiceResult<IReadOnlyList<LeadListItem>>.Fail(scope.Message);
 
+        await pipelineStages.EnsureLoadedAsync();
         await using var uow = uowFactory.Create();
         var leads = await uow.Leads.ListAsync(stage, search, scope: scope.Value);
         IReadOnlyList<LeadListItem> items = leads
             .Select(l => new LeadListItem(
-                l.Id, l.Contact.FullName, l.Parcel.Label, l.Stage, l.OfferAmount, l.LastActivityAtUtc))
+                l.Id, l.Contact.FullName, l.Parcel.Label, l.Stage,
+                pipelineStages.GetDisplayName(l.Stage), l.OfferAmount, l.LastActivityAtUtc))
             .ToList();
         return ServiceResult<IReadOnlyList<LeadListItem>>.Success(items);
     }
@@ -140,6 +146,7 @@ public sealed class LeadService(
         if (!scope.Ok)
             return ServiceResult<LeadFileDto>.Fail(scope.Message);
 
+        await pipelineStages.EnsureLoadedAsync();
         await using var uow = uowFactory.Create();
         var lead = await uow.Leads.GetForDisplayAsync(leadId, scope.Value);
         if (lead is null)
@@ -154,8 +161,16 @@ public sealed class LeadService(
             lead.Contact.Email,
             lead.Parcel.Label,
             lead.Stage,
+            pipelineStages.GetDisplayName(lead.Stage),
             lead.OfferAmount,
-            history.Select(h => new LeadStageHistoryRow(h.FromStage, h.ToStage, h.ChangedAtUtc, h.Note)).ToList(),
+            pipelineStages.GetStages(),
+            history.Select(h => new LeadStageHistoryRow(
+                h.FromStage,
+                h.ToStage,
+                h.ChangedAtUtc,
+                h.Note,
+                h.FromStage is { } fromStage ? pipelineStages.GetDisplayName(fromStage) : null,
+                pipelineStages.GetDisplayName(h.ToStage))).ToList(),
             interactions.Select(i => new LeadInteractionRow(i.Type, i.Channel, i.OccurredAtUtc, i.Note)).ToList()));
     }
 
@@ -240,6 +255,7 @@ public sealed class LeadService(
         if (!permission.Ok)
             return ServiceResult<Guid>.Fail(permission.Message);
 
+        await pipelineStages.EnsureLoadedAsync();
         await using var uow = uowFactory.Create();
         var oldLead = await uow.Leads.GetAsync(leadId);
         if (oldLead is null)
@@ -248,9 +264,8 @@ public sealed class LeadService(
         if (!leadPermission.Ok)
             return ServiceResult<Guid>.Fail(leadPermission.Message);
         if (oldLead.Stage is LeadStage.Closed or LeadStage.Lost)
-            return ServiceResult<Guid>.Fail($"Cannot switch lot: this lead is already {oldLead.Stage}.");
-        if (oldLead.Stage is not (LeadStage.New or LeadStage.Contacted or LeadStage.Viewing or LeadStage.Negotiation))
-            return ServiceResult<Guid>.Fail("This lead cannot switch lots.");
+            return ServiceResult<Guid>.Fail(
+                $"Cannot switch lot: this lead is already {pipelineStages.GetDisplayName(oldLead.Stage)}.");
         if (oldLead.ParcelId == newParcelId)
             return ServiceResult<Guid>.Fail("Choose a different parcel.");
 
@@ -326,6 +341,7 @@ public sealed class LeadService(
         if (!scope.Ok)
             return ServiceResult<PipelineBoardDto>.Fail(scope.Message);
 
+        await pipelineStages.EnsureLoadedAsync();
         await using var uow = uowFactory.Create();
         var assignedId = scope.Value.Kind == TenantDataScopeKind.Agent
             ? scope.Value.StaffId
@@ -362,7 +378,8 @@ public sealed class LeadService(
                 cards.Add(new LeadCardDto(
                     lead.Id, lead.ContactId, lead.Contact.FullName, lead.ParcelId, lead.Parcel.Label,
                     lead.AssignedStaffId is { } id && staffNames.TryGetValue(id, out var name) ? name : null,
-                    lead.Stage, days, lead.LastActivityAtUtc, lead.CloseRequested,
+                    lead.Stage, pipelineStages.GetDisplayName(lead.Stage), days,
+                    lead.LastActivityAtUtc, lead.CloseRequested,
                     latestDeal?.Status));
             }
             columns.Add(new PipelineColumnDto(stageInfo.Key, stageInfo.Name,
@@ -376,6 +393,7 @@ public sealed class LeadService(
         var scope = access.GetDataReadScope("pipeline moves");
         if (!scope.Ok)
             return ServiceResult<IReadOnlyList<LeadMoveOptionDto>>.Fail(scope.Message);
+        await pipelineStages.EnsureLoadedAsync();
         await using var uow = uowFactory.Create();
         var lead = await uow.Leads.GetAsync(leadId, scope.Value);
         if (lead is null)
@@ -388,9 +406,20 @@ public sealed class LeadService(
                 continue;
             var anotherHoldsParcel = target == LeadStage.Negotiation
                 && await uow.Leads.AnotherLeadInNegotiationAsync(lead.ParcelId, lead.Id);
+            var nextStage = PipelineRules.Next(lead.Stage, pipelineStages.GetConfiguration());
+            var closingStage = pipelineStages.ClosingStage;
             var rule = target == LeadStage.Closed
-                ? RuleResult.Fail("Closed is requested through the deal-confirmation flow.")
-                : PipelineRules.CanMove(lead, target, anotherHoldsParcel);
+                ? lead.Stage == closingStage
+                    ? RuleResult.Success()
+                    : RuleResult.Fail(
+                        $"Closed can only be requested from {pipelineStages.GetDisplayName(closingStage)}.")
+                : PipelineRules.CanMove(
+                    lead,
+                    target,
+                    nextStage,
+                    anotherHoldsParcel,
+                    stageInfo.Name,
+                    pipelineStages.GetDisplayName(LeadStage.Negotiation));
             if (user.Role is Roles.BranchManager or Roles.SuperAdmin)
                 rule = RuleResult.Fail(access.MutationUnavailableReason);
             else if (access.IsAgent && lead.AssignedStaffId != access.CurrentStaffId)
@@ -407,6 +436,7 @@ public sealed class LeadService(
         var scope = access.GetDataReadScope("lead timeline");
         if (!scope.Ok)
             return ServiceResult<IReadOnlyList<TimelineItemDto>>.Fail(scope.Message);
+        await pipelineStages.EnsureLoadedAsync();
         await using var uow = uowFactory.Create();
         var lead = await uow.Leads.GetAsync(leadId, scope.Value);
         if (lead is null)
@@ -428,7 +458,9 @@ public sealed class LeadService(
                 continue;
             }
             items.Add(new TimelineItemDto(row.ChangedAtUtc.ToLocalTime(), DealTimelineKind.StageChange,
-                row.FromStage is null ? $"Stage: {row.ToStage}" : $"{row.FromStage} -> {row.ToStage}",
+                row.FromStage is null
+                    ? $"Stage: {pipelineStages.GetDisplayName(row.ToStage)}"
+                    : $"{pipelineStages.GetDisplayName(row.FromStage.Value)} -> {pipelineStages.GetDisplayName(row.ToStage)}",
                 row.Note, name));
         }
         var interactions = await uow.Interactions.ListByLeadAsync(leadId, scope.Value);
@@ -721,6 +753,7 @@ public sealed class LeadService(
         if (!permission.Ok)
             return LeadResult.Fail(permission.Message);
 
+        await pipelineStages.EnsureLoadedAsync();
         await using var uow = uowFactory.Create();
 
         var lead = await uow.Leads.GetAsync(request.LeadId);
@@ -735,7 +768,14 @@ public sealed class LeadService(
         var anotherHoldsParcel = request.ToStage == LeadStage.Negotiation
             && await uow.Leads.AnotherLeadInNegotiationAsync(lead.ParcelId, lead.Id);
 
-        var rule = PipelineRules.CanMove(lead, request.ToStage, anotherHoldsParcel);
+        var targetName = pipelineStages.GetDisplayName(request.ToStage);
+        var rule = PipelineRules.CanMove(
+            lead,
+            request.ToStage,
+            PipelineRules.Next(lead.Stage, pipelineStages.GetConfiguration()),
+            anotherHoldsParcel,
+            targetName,
+            pipelineStages.GetDisplayName(LeadStage.Negotiation));
         if (!rule.Ok)
             return LeadResult.Fail(rule.Message);
 
@@ -771,11 +811,12 @@ public sealed class LeadService(
         await uow.SaveAsync();
         await events.DispatchAsync(new LeadStageChanged(lead.Id, from, request.ToStage, now));
 
-        return LeadResult.Success(ToDto(lead), $"Moved to {request.ToStage}.");
+        return LeadResult.Success(ToDto(lead), $"Moved to {targetName}.");
     }
 
-    private static LeadDto ToDto(Lead l) => new(
+    private LeadDto ToDto(Lead l) => new(
         l.Id, l.ContactId, l.Contact.FullName, l.Contact.Phone, l.Contact.Email, l.Contact.Source,
         l.Contact.ConsentSms, l.Contact.ConsentEmail, l.ParcelId, l.Parcel.Label, l.Stage,
+        pipelineStages.GetDisplayName(l.Stage),
         l.CloseRequested, l.OfferAmount, l.LostReason, l.LastActivityAtUtc);
 }

@@ -310,7 +310,7 @@ public partial class ParcelMapView : UserControl, IParcelMapView
             foreach (var lead in leads)
             {
                 var item = new ListViewItem(lead.ContactName) { Tag = lead.Id };   // Tag: step 5b opens the lead file from it
-                item.SubItems.Add(lead.Stage.ToString());
+                item.SubItems.Add(lead.StageName);
                 listLeads.Items.Add(item);
             }
         }

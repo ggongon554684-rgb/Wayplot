@@ -6,6 +6,7 @@ public sealed record DealCandidateItem(
     Guid LeadId,
     string ContactName,
     string ParcelLabel,
+    string ClosingStageName,
     decimal? OfferAmount,
     decimal ParcelPrice,
     decimal ReservationFee);

@@ -679,7 +679,7 @@ public partial class ContactsView : UserControl, IContactsView
         };
         var stage = new Label
         {
-            Text = $"Stage: {lead.Stage}",
+            Text = $"Stage: {lead.StageName}",
             AutoSize = true,
             ForeColor = Theme.Text,
             Margin = new Padding(0, 0, 0, 2)

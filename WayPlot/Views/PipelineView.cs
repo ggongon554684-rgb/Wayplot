@@ -42,6 +42,7 @@ public partial class PipelineView : UserControl, IPipelineView
         btnRequestClosed.Click += (_, _) => _ = RunUiAsync(RequestClosedAsync);
         btnSwitchLot.Click += (_, _) => _ = RunUiAsync(SwitchLotAsync);
         btnCloseDetail.Click += (_, _) => CloseDetail();
+        btnConfigureStages.Click += (_, _) => _ = RunUiAsync(ConfigureStagesAsync);
 
         // Keep pipeline column heights in sync when the board panel is resized.
         boardPanel.Resize += (_, _) =>
@@ -114,6 +115,7 @@ public partial class PipelineView : UserControl, IPipelineView
                                        btnLogViewing, btnAddNote, btnRequestClosed,
                                        btnSwitchLot, btnOpenContact, btnShowMap })
             ButtonStyle.Apply(button, false);
+        ButtonStyle.Apply(btnConfigureStages, false);
         ButtonStyle.Apply(btnCloseDetail, false);
     }
 
@@ -210,6 +212,7 @@ public partial class PipelineView : UserControl, IPipelineView
             if (selected is not null)
                 _ = RunUiAsync(() => SelectCardAsync(selected));
         }
+        UpdateRoleActions();
     }
 
     public void ShowStatus(string text, bool isError)
@@ -226,7 +229,7 @@ public partial class PipelineView : UserControl, IPipelineView
         _dragMoves = result.Ok && result.Value is not null
             ? result.Value
                 .Where(move => move.Allowed || move.Reason is not null)
-                .ToDictionary(move => move.TargetStage.ToString(), move => move)
+                .ToDictionary(move => PipelineStageDefinition.Key(move.TargetStage), move => move)
             : new Dictionary<string, LeadMoveOptionDto>();
         foreach (PipelineColumnControl column in boardPanel.Controls)
         {
@@ -288,8 +291,8 @@ public partial class PipelineView : UserControl, IPipelineView
         foreach (var move in result.Value.Where(move => move.Allowed))
         {
             var stageName = _presenter.Stages.FirstOrDefault(stage =>
-                stage.Key == move.TargetStage.ToString())?.Name
-                ?? move.TargetStage.ToString();
+                stage.Key == PipelineStageDefinition.Key(move.TargetStage))?.Name
+                ?? _presenter.StageDisplayName(move.TargetStage);
             menu.Items.Add(stageName, null, (_, _) =>
                 _ = RunUiAsync(() => ExecuteMoveAsync(leadId, move.TargetStage, move)));
         }
@@ -404,7 +407,7 @@ public partial class PipelineView : UserControl, IPipelineView
         ApplyPreferredDetailWidth();
         lblContact.Text = card.ContactName;
         lblParcel.Text = card.ParcelLabel;
-        lblStage.Text = card.Stage.ToString();
+        lblStage.Text = card.StageName;
         lblAgent.Text = card.AgentName ?? "Unassigned";
         var timeline = await _presenter.TimelineAsync(card.LeadId);
         timelineList.Controls.Clear();
@@ -454,6 +457,15 @@ public partial class PipelineView : UserControl, IPipelineView
     {
         if (_presenter is null) return;
         var canMutate = _presenter.CanMutate;
+        var selectedStage = _board?.Columns.SelectMany(column => column.Cards)
+            .FirstOrDefault(card => card.LeadId == _selectedLeadId)?.Stage;
+        var canRequestClosed = selectedStage == _presenter.ClosingStage;
+        var requestClosedReason = !canMutate
+            ? _presenter.MutationUnavailableReason
+            : canRequestClosed
+                ? null
+                : $"Request Closed is available only from {_presenter.StageDisplayName(_presenter.ClosingStage)}.";
+        btnConfigureStages.Visible = _presenter.IsAdmin;
         ButtonStyle.ApplyAvailability([
             new ButtonAvailability(btnMove, canMutate, canMutate, _presenter.MutationUnavailableReason, false),
             new ButtonAvailability(btnLogCall, canMutate, canMutate, _presenter.MutationUnavailableReason, false),
@@ -461,11 +473,27 @@ public partial class PipelineView : UserControl, IPipelineView
             new ButtonAvailability(btnLogEmail, canMutate, canMutate, _presenter.MutationUnavailableReason, false),
             new ButtonAvailability(btnLogViewing, canMutate, canMutate, _presenter.MutationUnavailableReason, false),
             new ButtonAvailability(btnAddNote, canMutate, canMutate, _presenter.MutationUnavailableReason, false),
-            new ButtonAvailability(btnRequestClosed, canMutate, canMutate, _presenter.MutationUnavailableReason, false),
+            new ButtonAvailability(btnRequestClosed, canMutate, canMutate && canRequestClosed, requestClosedReason, false),
             new ButtonAvailability(btnSwitchLot, canMutate, canMutate, _presenter.MutationUnavailableReason, false)
         ], _tooltip);
         btnOpenContact.Visible = true;
         btnShowMap.Visible = true;
+    }
+
+    private async Task ConfigureStagesAsync()
+    {
+        if (_presenter is null || !_presenter.IsAdmin) return;
+        var stages = await _presenter.GetPipelineStagesForAdminAsync();
+        if (!stages.Ok || stages.Value is null)
+        {
+            ShowStatus(stages.Message, true);
+            return;
+        }
+
+        using var dialog = new PipelineStagesDialog(stages.Value, _presenter.SavePipelineStagesAsync);
+        if (dialog.ShowDialog(FindForm()) != DialogResult.OK) return;
+        ShowStatus(dialog.Result?.Message ?? "Pipeline stages saved.", false);
+        await ReloadAsync();
     }
 
     private void ScrollBoardFromMouse()

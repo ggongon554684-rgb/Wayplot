@@ -1,5 +1,6 @@
 using System.Data;
 using WayPlot.domain.Common;
+using WayPlot.domain.Contracts;
 using WayPlot.domain.Entities;
 using WayPlot.domain.Events;
 using WayPlot.domain.Interfaces;
@@ -19,7 +20,9 @@ public sealed class DealStatusRefreshEventTests
         var conflict = CreateDeal(DealStatus.Overdue);
         var events = new EventCollector();
         var factory = new UnitOfWorkFactory([changed, unchanged, conflict], conflict.Id);
-        var service = new DealService(factory, events, null!, new TestClock(), null!, null!, TimeProvider.System);
+        var service = new DealService(
+            factory, events, null!, new TestClock(), null!, null!, TimeProvider.System,
+            new DefaultPipelineStageProvider());
 
         var result = await service.RefreshDealStatusesAsync();
 

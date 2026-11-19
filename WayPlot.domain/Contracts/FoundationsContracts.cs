@@ -37,6 +37,7 @@ public sealed record ContactLeadCardDto(
     Guid ParcelId,
     string ParcelLabel,
     LeadStage Stage,
+    string StageName,
     string AgentName,
     DateTime LastActivityAtUtc);
 
@@ -67,20 +68,37 @@ public sealed record PipelineStageInfo(string Key, string Name, int SortOrder, b
 
 public interface IPipelineStageProvider
 {
+    Task EnsureLoadedAsync();
     IReadOnlyList<PipelineStageInfo> GetStages();
+    IReadOnlyList<PipelineStageSetting> GetConfiguration();
+    string GetDisplayName(LeadStage stage);
+    LeadStage ClosingStage { get; }
+    Task<IReadOnlyList<PipelineStageAdminInfo>> GetAllForAdminAsync();
+    void Invalidate();
+    void ClearCache();
 }
 
 public sealed class DefaultPipelineStageProvider : IPipelineStageProvider
 {
+    private readonly IReadOnlyList<PipelineStageSetting> _configuration = PipelineStageDefinition.Defaults;
+
+    public Task EnsureLoadedAsync() => Task.CompletedTask;
+
     public IReadOnlyList<PipelineStageInfo> GetStages()
-    {
-        var stages = Enum.GetValues<LeadStage>();
-        return stages.Select((stage, index) => new PipelineStageInfo(
-            stage.ToString(),
-            stage.ToString(),
-            index,
-            stage is LeadStage.New or LeadStage.Closed or LeadStage.Lost)).ToList();
-    }
+        => PipelineStageDefinition.GetStages(_configuration);
+
+    public IReadOnlyList<PipelineStageSetting> GetConfiguration() => _configuration;
+
+    public string GetDisplayName(LeadStage stage) =>
+        PipelineStageDefinition.GetDisplayName(stage, _configuration);
+
+    public LeadStage ClosingStage => PipelineStageDefinition.ClosingStage(_configuration);
+
+    public Task<IReadOnlyList<PipelineStageAdminInfo>> GetAllForAdminAsync() =>
+        Task.FromResult(PipelineStageDefinition.GetAllForAdmin(_configuration, new Dictionary<LeadStage, int>()));
+
+    public void Invalidate() { }
+    public void ClearCache() { }
 }
 
 public sealed record PipelineFilter(
@@ -105,6 +123,7 @@ public sealed record LeadCardDto(
     string ParcelLabel,
     string? AgentName,
     LeadStage Stage,
+    string StageName,
     int DaysInStage,
     DateTime LastActivityAt,
     bool HasPendingClosedRequest,

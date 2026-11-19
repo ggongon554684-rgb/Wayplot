@@ -13,6 +13,7 @@ namespace WayPlot.Views
             cboParcel = new ComboBox();
             cboAgent = new ComboBox();
             chkOlder = new CheckBox();
+            btnConfigureStages = new Button();
             lblStatus = new Label();
             splitDetail = new SplitContainer();
             boardPanel = new FlowLayoutPanel();
@@ -54,13 +55,14 @@ namespace WayPlot.Views
             layout.RowStyles.Add(new RowStyle());
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
 
-            filters.ColumnCount = 4;
+            filters.ColumnCount = 5;
             filters.Dock = DockStyle.Fill;
             filters.AutoSize = true;
             filters.Controls.Add(txtSearch, 0, 0);
             filters.Controls.Add(cboParcel, 1, 0);
             filters.Controls.Add(cboAgent, 2, 0);
             filters.Controls.Add(chkOlder, 3, 0);
+            filters.Controls.Add(btnConfigureStages, 4, 0);
             txtSearch.MinimumSize = new Size(220, 30);
             cboParcel.MinimumSize = new Size(180, 30);
             cboAgent.MinimumSize = new Size(180, 30);
@@ -69,6 +71,11 @@ namespace WayPlot.Views
             cboAgent.Visible = false;
             chkOlder.Text = "Include older Closed and Lost";
             chkOlder.AutoSize = true;
+            btnConfigureStages.AutoSize = true;
+            btnConfigureStages.Name = "btnConfigureStages";
+            btnConfigureStages.TabIndex = 5;
+            btnConfigureStages.Text = "Configure stages";
+            btnConfigureStages.UseVisualStyleBackColor = true;
 
             lblStatus.AutoSize = true;
             lblStatus.Margin = new Padding(0, 6, 0, 6);
@@ -175,6 +182,7 @@ namespace WayPlot.Views
         private ComboBox cboParcel;
         private ComboBox cboAgent;
         private CheckBox chkOlder;
+        private Button btnConfigureStages;
         private Label lblStatus;
         private SplitContainer splitDetail;
         private FlowLayoutPanel boardPanel;

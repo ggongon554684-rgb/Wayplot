@@ -26,7 +26,11 @@ public sealed record DealActionStates(
     ActionAvailability ConfirmPayment,
     ActionAvailability ReturnPayment);
 
-public sealed class DealsPresenter(IDealsView view, DealService deals, ICurrentUser user)
+public sealed class DealsPresenter(
+    IDealsView view,
+    DealService deals,
+    ICurrentUser user,
+    IPipelineStageProvider pipelineStages)
 {
     private int _latest;
     private int _latestPayments;
@@ -53,9 +57,9 @@ public sealed class DealsPresenter(IDealsView view, DealService deals, ICurrentU
         var ticket = ++_latest;
         if (view.IsDisposed) return;
         view.ShowStatus("Loading deals...", false);
-
         try
         {
+            await pipelineStages.EnsureLoadedAsync();
             var result = await deals.ListAsync();
             if (ticket != _latest || view.IsDisposed) return;
             if (!result.Ok || result.Value is null)
@@ -83,7 +87,7 @@ public sealed class DealsPresenter(IDealsView view, DealService deals, ICurrentU
         catch (Exception)
         {
             return ServiceResult<IReadOnlyList<DealCandidateItem>>.Fail(
-                "Could not load Negotiation leads. Check the database connection and try again.");
+                "Could not load eligible leads. Check the database connection and try again.");
         }
     }
 
@@ -247,7 +251,7 @@ public sealed class DealsPresenter(IDealsView view, DealService deals, ICurrentU
     private static ActionAvailability ForRole(bool visible, string? disabledReason) =>
         new(visible, visible && disabledReason is null, disabledReason);
 
-    private static string? ConfirmClosedDisabledReason(DealListItem? deal)
+    private string? ConfirmClosedDisabledReason(DealListItem? deal)
     {
         if (deal is null) return "Select a deal first.";
         if (deal.Status == DealStatus.Cancelled) return "This deal is cancelled.";
@@ -257,7 +261,8 @@ public sealed class DealsPresenter(IDealsView view, DealService deals, ICurrentU
         if (!deal.IsActive) return "This deal is no longer active.";
         if (deal.Status != DealStatus.Current) return "Only current deals can be confirmed.";
         if (!deal.CloseRequested) return "There is no pending Closed request.";
-        if (deal.LeadStage != LeadStage.Negotiation) return "Only a Negotiation lead can be confirmed as Closed.";
+        if (deal.LeadStage != pipelineStages.ClosingStage)
+            return $"Only a lead in {pipelineStages.GetDisplayName(pipelineStages.ClosingStage)} can be confirmed as Closed.";
         return null;
     }
 

@@ -9,12 +9,16 @@ public sealed record AdminReviewData(
     IReadOnlyList<ReviewPaymentListItem> PendingPayments,
     IReadOnlyList<PayoutListItem> UnpaidPayouts);
 
-public sealed class AdminReviewPresenter(DealService deals, CommissionService commissions)
+public sealed class AdminReviewPresenter(
+    DealService deals,
+    CommissionService commissions,
+    IPipelineStageProvider pipelineStages)
 {
     public async Task<ServiceResult<AdminReviewData>> LoadAsync()
     {
         try
         {
+            await pipelineStages.EnsureLoadedAsync();
             var queue = await deals.GetAdminReviewQueueAsync();
             if (!queue.Ok || queue.Value is null)
                 return ServiceResult<AdminReviewData>.Fail(queue.Message);
@@ -85,4 +89,6 @@ public sealed class AdminReviewPresenter(DealService deals, CommissionService co
         try { return await deals.GetPaymentsAsync(dealId); }
         catch (Exception) { return ServiceResult<IReadOnlyList<DealPaymentDto>>.Fail("Payments could not be loaded."); }
     }
+
+    public string StageDisplayName(LeadStage stage) => pipelineStages.GetDisplayName(stage);
 }

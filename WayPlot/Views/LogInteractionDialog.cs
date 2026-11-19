@@ -136,7 +136,7 @@ public partial class LogInteractionDialog : Form
         foreach (var lead in result.Value)
         {
             _leadIds.Add(lead.Id);
-            cboLead.Items.Add($"{lead.ContactName} — {lead.ParcelLabel} ({EnumText.Pretty(lead.Stage)})");
+            cboLead.Items.Add($"{lead.ContactName} — {lead.ParcelLabel} ({lead.StageName})");
         }
         cboLead.EndUpdate();
         ShowLeadStatus(result.Value.Count == 0 ? "No leads found." : $"{result.Value.Count} leads found.", false);

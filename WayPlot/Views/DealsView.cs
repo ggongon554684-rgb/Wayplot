@@ -109,7 +109,7 @@ public partial class DealsView : UserControl, IDealsView
         }
         if (candidates.Value.Count == 0)
         {
-            ShowStatus("No eligible Negotiation leads are available for a Closed request.", false);
+            ShowStatus("No leads are currently eligible for a Closed request.", false);
             return;
         }
 

@@ -9,7 +9,7 @@ public enum ContactType { Customer, Landowner, Client }
 public enum PersonKind { Customer, Client, Landowner }
 public enum DealType { Sale, Lease }
 public enum LeadSource { Signboard, WalkIn, PhoneCall, Facebook, Referral, Other, Import }
-public enum LeadStage { New, Contacted, Viewing, Negotiation, Closed, Lost }
+public enum LeadStage { New, Contacted, Viewing, Negotiation, Closed, Lost, Custom1, Custom2, Custom3, Custom4 }
 public enum InteractionType { Inquiry, Complaint, Feedback }
 public enum InteractionChannel { Call, Sms, Email, WalkIn, Viewing, Note }
 public enum ComplaintStatus { Open, Resolved }

@@ -16,7 +16,8 @@ public sealed class DealService(
     IClock clock,
     CommissionService commissions,
     TenantAccessPolicy access,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider,
+    IPipelineStageProvider pipelineStages)
 {
     private const decimal MaximumPrice = 9999999999999999.99m;
 
@@ -173,9 +174,11 @@ public sealed class DealService(
         if (!scope.Ok)
             return ServiceResult<IReadOnlyList<DealCandidateItem>>.Fail(scope.Message);
 
+        await pipelineStages.EnsureLoadedAsync();
         await using var uow = uowFactory.Create();
         var agentStaffId = scope.Value.Kind == TenantDataScopeKind.Agent ? scope.Value.StaffId : null;
-        var leads = await uow.Leads.ListAsync(LeadStage.Negotiation, null, agentStaffId, scope.Value);
+        var closingStage = pipelineStages.ClosingStage;
+        var leads = await uow.Leads.ListAsync(closingStage, null, agentStaffId, scope.Value);
         IReadOnlyList<DealCandidateItem> candidates = leads
             .Where(lead => !lead.CloseRequested
                 && lead.Parcel.Status is ParcelStatus.Available or ParcelStatus.Reserved)
@@ -183,6 +186,7 @@ public sealed class DealService(
                 lead.Id,
                 lead.Contact.FullName,
                 lead.Parcel.Label,
+                pipelineStages.GetDisplayName(closingStage),
                 lead.OfferAmount,
                 lead.Parcel.Price,
                 lead.Parcel.ReservationFee))
@@ -196,6 +200,7 @@ public sealed class DealService(
         if (!permission.Ok)
             return ServiceResult<DealListItem>.Fail(permission.Message);
 
+        await pipelineStages.EnsureLoadedAsync();
         await using var uow = uowFactory.Create();
         var lead = await uow.Leads.GetAsync(request.LeadId);
         if (lead is null)
@@ -205,8 +210,11 @@ public sealed class DealService(
             return ServiceResult<DealListItem>.Fail(leadPermission.Message);
         if (user.Role == Roles.TenantAdmin && lead.AssignedStaffId is null)
             return ServiceResult<DealListItem>.Fail("Assign this lead to an agent before requesting Closed.");
-        if (lead.Stage != LeadStage.Negotiation)
-            return ServiceResult<DealListItem>.Fail("Closed can only be requested for a lead in Negotiation.");
+        var closingStage = pipelineStages.ClosingStage;
+        var closingStageName = pipelineStages.GetDisplayName(closingStage);
+        if (lead.Stage != closingStage)
+            return ServiceResult<DealListItem>.Fail(
+                $"Closed can only be requested for a lead in {closingStageName}.");
         if (lead.CloseRequested)
             return ServiceResult<DealListItem>.Fail("This lead already has a pending close request.");
         if (lead.Parcel.Status is ParcelStatus.Sold or ParcelStatus.Leased)
@@ -313,6 +321,7 @@ public sealed class DealService(
         if (closingStatus is not (ParcelStatus.Sold or ParcelStatus.Leased))
             return ServiceResult<DealListItem>.Fail("Choose Sold or Leased when confirming Closed.");
 
+        await pipelineStages.EnsureLoadedAsync();
         await using var uow = uowFactory.Create();
         var deal = await uow.Deals.GetAsync(dealId);
         if (deal is null)
@@ -325,7 +334,9 @@ public sealed class DealService(
             return ServiceResult<DealListItem>.Fail(
                 $"Closed was refused because parcel {deal.Parcel.Label} is {deal.Parcel.Status}, not Reserved for this deal.");
 
-        var rule = PipelineRules.CanConfirmDeal(deal.Lead);
+        var closingStage = pipelineStages.ClosingStage;
+        var rule = PipelineRules.CanConfirmDeal(
+            deal.Lead, closingStage, pipelineStages.GetDisplayName(closingStage));
         if (!rule.Ok)
             return ServiceResult<DealListItem>.Fail(rule.Message);
 
@@ -376,6 +387,7 @@ public sealed class DealService(
         if (!permission.Ok)
             return ServiceResult<DealListItem>.Fail(permission.Message);
 
+        await pipelineStages.EnsureLoadedAsync();
         await using var uow = uowFactory.Create();
         var deal = await uow.Deals.GetAsync(dealId);
         if (deal is null)
@@ -408,7 +420,9 @@ public sealed class DealService(
         foreach (var payoutEvent in payoutEvents)
             await events.DispatchAsync(payoutEvent);
         await events.DispatchAsync(new DealChanged(deal.Id, deal.ParcelId, deal.ContactId, deal.Lead.LastActivityAtUtc));
-        return ServiceResult<DealListItem>.Success(ToListItem(deal), "Closed request returned. The parcel is Available and the lead remains in Negotiation.");
+        return ServiceResult<DealListItem>.Success(
+            ToListItem(deal),
+            $"Closed request returned. The parcel is Available and the lead remains in {pipelineStages.GetDisplayName(deal.Lead.Stage)}.");
     }
 
     public Task<ServiceResult<DealListItem>> CancelDealAsync(

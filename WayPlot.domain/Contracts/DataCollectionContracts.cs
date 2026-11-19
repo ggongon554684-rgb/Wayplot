@@ -175,6 +175,7 @@ public sealed record LeadDto(
     Guid ParcelId,
     string ParcelLabel,
     LeadStage Stage,
+    string StageName,
     bool CloseRequested,
     decimal? OfferAmount,
     string? LostReason,
@@ -185,6 +186,7 @@ public sealed record LeadListItem(
     string ContactName,
     string ParcelLabel,
     LeadStage Stage,
+    string StageName,
     decimal? OfferAmount,
     DateTime LastActivityAtUtc);
 
@@ -195,7 +197,9 @@ public sealed record LeadFileDto(
     string? ContactEmail,
     string ParcelLabel,
     LeadStage Stage,
+    string StageName,
     decimal? OfferAmount,
+    IReadOnlyList<PipelineStageInfo> Stages,
     IReadOnlyList<LeadStageHistoryRow> History,
     IReadOnlyList<LeadInteractionRow> Interactions);
 
@@ -203,7 +207,9 @@ public sealed record LeadStageHistoryRow(
     LeadStage? FromStage,
     LeadStage ToStage,
     DateTime ChangedAtUtc,
-    string? Note);
+    string? Note,
+    string? FromStageName,
+    string ToStageName);
 
 public sealed record LeadInteractionRow(
     InteractionType Type,

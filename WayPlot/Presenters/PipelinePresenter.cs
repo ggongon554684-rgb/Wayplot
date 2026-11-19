@@ -22,6 +22,7 @@ public sealed class PipelinePresenter(
     DealService deals,
     StaffService staff,
     IPipelineStageProvider stages,
+    PipelineConfigService pipelineConfig,
     ICurrentUser user,
     TenantAccessPolicy access)
 {
@@ -31,6 +32,8 @@ public sealed class PipelinePresenter(
     public bool CanMutate => access.CanMutateData;
     public string MutationUnavailableReason => access.MutationUnavailableReason;
     public IReadOnlyList<PipelineStageInfo> Stages => stages.GetStages();
+    public LeadStage ClosingStage => stages.ClosingStage;
+    public string StageDisplayName(LeadStage stage) => stages.GetDisplayName(stage);
 
     public async Task LoadAsync(PipelineFilter filter)
     {
@@ -92,4 +95,10 @@ public sealed class PipelinePresenter(
 
     public Task<ServiceResult<DealListItem>> RequestClosedAsync(CreateDealRequest request) =>
         deals.RequestClosedAsync(request);
+
+    public Task<ServiceResult<PipelineStageAdminSnapshot>> GetPipelineStagesForAdminAsync() =>
+        pipelineConfig.GetAllForAdminAsync();
+
+    public Task<ServiceResult<PipelineStageConfigSnapshot>> SavePipelineStagesAsync(PipelineStageSaveRequest request) =>
+        pipelineConfig.SaveAsync(request);
 }
