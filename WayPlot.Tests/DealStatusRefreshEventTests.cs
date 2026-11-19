@@ -1,5 +1,6 @@
 using System.Data;
 using WayPlot.domain.Common;
+using WayPlot.domain.Contracts;
 using WayPlot.domain.Entities;
 using WayPlot.domain.Events;
 using WayPlot.domain.Interfaces;
@@ -19,7 +20,9 @@ public sealed class DealStatusRefreshEventTests
         var conflict = CreateDeal(DealStatus.Overdue);
         var events = new EventCollector();
         var factory = new UnitOfWorkFactory([changed, unchanged, conflict], conflict.Id);
-        var service = new DealService(factory, events, null!, new TestClock(), null!, null!, TimeProvider.System);
+        var service = new DealService(
+            factory, events, null!, new TestClock(), null!, null!, TimeProvider.System,
+            new DefaultPipelineStageProvider());
 
         var result = await service.RefreshDealStatusesAsync();
 
@@ -104,6 +107,7 @@ public sealed class DealStatusRefreshEventTests
 
         public Task ExecuteInTransactionAsync(Func<Task> operation) => operation();
         public Task ExecuteInTransactionAsync(Func<Task> operation, IsolationLevel isolationLevel) => ExecuteInTransactionAsync(operation);
+        public Task<bool> AcquirePipelineStagesLockAsync() => Task.FromResult(true);
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
         private sealed class DealRepository(IReadOnlyList<Deal> deals, Action<Deal> touch) : IDealRepository

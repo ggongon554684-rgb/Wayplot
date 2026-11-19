@@ -38,6 +38,9 @@ public partial class CreateDealDialog : Form
             foreach (var candidate in _candidates)
                 cboLead.Items.Add($"{candidate.ContactName} — {candidate.ParcelLabel}");
             cboLead.SelectedIndex = _candidates.Count == 0 ? -1 : 0;
+            lblLead.Text = _candidates.Count == 0
+                ? "Eligible lead"
+                : $"{_candidates[0].ClosingStageName} lead";
         }
     }
 

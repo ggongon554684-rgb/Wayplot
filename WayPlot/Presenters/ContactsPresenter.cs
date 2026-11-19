@@ -66,8 +66,9 @@ public sealed class ContactsPresenter(
             view.ShowContacts(result.Value);
             view.ShowStatus(notice ?? Summary(result.Value.Count, search), false);
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            WayPlot.UI.AppLog.Error("ContactsPresenter.LoadAsync", ex);
             if (ticket == _latest && !view.IsDisposed)
                 view.ShowStatus("Could not load contacts. Check the database connection and try again.", true);
         }
@@ -135,7 +136,7 @@ public sealed class ContactsPresenter(
     public async Task RefreshDealStatusesAsync()
     {
         try { await deals.RefreshDealStatusesAsync(); }
-        catch { }
+        catch (Exception ex) { WayPlot.UI.AppLog.Error("RefreshDealStatusesAsync", ex); }
     }
 
     public async Task<ServiceResult<CaptureContactResult>> CaptureAsync(CaptureContactRequest request)

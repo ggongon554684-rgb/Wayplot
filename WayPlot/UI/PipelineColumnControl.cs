@@ -10,6 +10,7 @@ public partial class PipelineColumnControl : UserControl
     {
         InitializeComponent();
         ApplyTheme();
+        cards.SizeChanged += (_, _) => FitCards();
         AllowDrop = true;
         DragEnter += (_, args) => args.Effect = args.Data?.GetDataPresent(typeof(Guid)) == true
             ? DragDropEffects.Move : DragDropEffects.None;
@@ -65,10 +66,23 @@ public partial class PipelineColumnControl : UserControl
             cards.Controls.Add(control);
         }
         cards.ResumeLayout();
+        FitCards();
         lblNotice.Text = column.TotalCount > column.Cards.Count
             ? $"Showing {column.Cards.Count} of {column.TotalCount}. Narrow the filters."
             : "";
         lblNotice.Visible = !string.IsNullOrEmpty(lblNotice.Text);
+    }
+
+    /// <summary>
+    /// Sizes every card to the list width minus the scrollbar, so a card is never wider than its
+    /// column (which is what produced the horizontal scrollbar under each card). Uses the outer
+    /// Width, not ClientSize, so a scrollbar appearing cannot trigger a resize loop.
+    /// </summary>
+    private void FitCards()
+    {
+        var width = Math.Max(160, cards.Width - SystemInformation.VerticalScrollBarWidth - 8);
+        foreach (Control card in cards.Controls)
+            card.Width = width;
     }
 
     public void SetDropState(bool allowed, string? reason)

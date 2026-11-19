@@ -19,13 +19,18 @@ public partial class PipelineView : UserControl, IPipelineView
     public PipelineView()
     {
         InitializeComponent();
+        splitDetail.Panel2Collapsed = false;
+        splitDetail.SplitterDistance = 420;
+        splitDetail.Panel1MinSize = 420;
+        splitDetail.Panel2MinSize = 330;
+        splitDetail.Panel2Collapsed = true;
         edgeScrollTimer = new System.Windows.Forms.Timer { Interval = 80 };
         edgeScrollTimer.Tick += (_, _) => ScrollBoardFromMouse();
         ApplyTheme();
         txtSearch.TextChanged += (_, _) => { filterTimer.Stop(); filterTimer.Start(); };
         filterTimer.Tick += (_, _) => { filterTimer.Stop(); _ = RunUiAsync(ReloadAsync); };
-        cboParcel.SelectedIndexChanged += (_, _) => _ = RunUiAsync(ReloadAsync);
-        cboAgent.SelectedIndexChanged += (_, _) => _ = RunUiAsync(ReloadAsync);
+        cboParcel.SelectedIndexChanged += (_, _) => { if (_filterLoading == 0) _ = RunUiAsync(ReloadAsync); };
+        cboAgent.SelectedIndexChanged += (_, _) => { if (_filterLoading == 0) _ = RunUiAsync(ReloadAsync); };
         chkOlder.CheckedChanged += (_, _) => _ = RunUiAsync(ReloadAsync);
         splitDetail.SplitterMoved += (_, _) => SaveDetailWidth();
         btnMove.Click += (_, _) => _ = RunUiAsync(OpenMoveMenuAsync);
@@ -37,6 +42,15 @@ public partial class PipelineView : UserControl, IPipelineView
         btnRequestClosed.Click += (_, _) => _ = RunUiAsync(RequestClosedAsync);
         btnSwitchLot.Click += (_, _) => _ = RunUiAsync(SwitchLotAsync);
         btnCloseDetail.Click += (_, _) => CloseDetail();
+        btnConfigureStages.Click += (_, _) => _ = RunUiAsync(ConfigureStagesAsync);
+
+        // Keep pipeline column heights in sync when the board panel is resized.
+        boardPanel.Resize += (_, _) =>
+        {
+            var h = Math.Max(400, boardPanel.ClientSize.Height);
+            foreach (Control col in boardPanel.Controls)
+                col.Height = h;
+        };
     }
 
     [Browsable(false)]
@@ -70,8 +84,9 @@ public partial class PipelineView : UserControl, IPipelineView
                 await ReloadAsync();
             }
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            AppLog.Error("PipelineView.OnLoad", ex);
             if (!IsDisposed)
                 ShowStatus("Could not load the pipeline. Try again.", true);
         }
@@ -100,35 +115,55 @@ public partial class PipelineView : UserControl, IPipelineView
                                        btnLogViewing, btnAddNote, btnRequestClosed,
                                        btnSwitchLot, btnOpenContact, btnShowMap })
             ButtonStyle.Apply(button, false);
+        ButtonStyle.Apply(btnConfigureStages, false);
         ButtonStyle.Apply(btnCloseDetail, false);
     }
+
+    // Incremented while filter combos are being populated so the SelectedIndexChanged
+    // handlers ignore those programmatic changes and do not trigger a redundant reload.
+    private int _filterLoading;
 
     private async Task LoadFiltersAsync()
     {
         if (_presenter is null) return;
-        var parcels = await _presenter.ParcelsAsync();
-        if (parcels.Ok && parcels.Value is not null)
+
+        _filterLoading++;
+        try
         {
-            cboParcel.Items.Clear();
-            cboParcel.Items.Add(new ParcelFilter(Guid.Empty, "All parcels"));
-            foreach (var parcel in parcels.Value)
-                cboParcel.Items.Add(new ParcelFilter(parcel.Id, parcel.Label));
-            cboParcel.DisplayMember = nameof(ParcelFilter.Name);
-            cboParcel.SelectedIndex = 0;
-        }
-        if (_presenter.IsAdmin)
-        {
-            var staff = await _presenter.StaffAsync();
-            if (staff.Ok && staff.Value is not null)
+            var parcels = await _presenter.ParcelsAsync();
+            if (parcels.Ok && parcels.Value is not null)
             {
-                cboAgent.Items.Clear();
-                cboAgent.Items.Add(new StaffFilter(Guid.Empty, "All agents"));
-                foreach (var member in staff.Value.Where(item => item.Role == Roles.Agent))
-                    cboAgent.Items.Add(new StaffFilter(member.Id, member.DisplayName));
-                cboAgent.DisplayMember = nameof(StaffFilter.Name);
-                cboAgent.SelectedIndex = 0;
-                cboAgent.Visible = true;
+                cboParcel.Items.Clear();
+                cboParcel.Items.Add(new ParcelFilter(Guid.Empty, "All parcels"));
+                foreach (var parcel in parcels.Value)
+                    cboParcel.Items.Add(new ParcelFilter(parcel.Id, parcel.Label));
+                cboParcel.DisplayMember = nameof(ParcelFilter.Name);
+                cboParcel.SelectedIndex = 0;
             }
+            else
+            {
+                // Show a visible hint so the user knows the parcel filter is unavailable.
+                ShowStatus("Parcel filter could not be loaded. Pipeline may still load below.", true);
+            }
+
+            if (_presenter.IsAdmin)
+            {
+                var staff = await _presenter.StaffAsync();
+                if (staff.Ok && staff.Value is not null)
+                {
+                    cboAgent.Items.Clear();
+                    cboAgent.Items.Add(new StaffFilter(Guid.Empty, "All agents"));
+                    foreach (var member in staff.Value.Where(item => item.Role == Roles.Agent))
+                        cboAgent.Items.Add(new StaffFilter(member.Id, member.DisplayName));
+                    cboAgent.DisplayMember = nameof(StaffFilter.Name);
+                    cboAgent.SelectedIndex = 0;
+                    cboAgent.Visible = true;
+                }
+            }
+        }
+        finally
+        {
+            _filterLoading--;
         }
     }
 
@@ -150,13 +185,14 @@ public partial class PipelineView : UserControl, IPipelineView
         var selectedId = _selectedLeadId;
         boardPanel.SuspendLayout();
         boardPanel.Controls.Clear();
+        var colHeight = Math.Max(400, boardPanel.ClientSize.Height);
         foreach (var column in board.Columns)
         {
             var control = new PipelineColumnControl
             {
-                Width = 280,
-                Height = boardPanel.ClientSize.Height,
-                Dock = DockStyle.Left,
+                Width = 300,
+                Height = colHeight,
+                Margin = new Padding(0, 0, 8, 0),
                 SharedToolTip = _tooltip
             };
             control.SetColumn(column, _presenter?.IsAdmin == true);
@@ -176,6 +212,7 @@ public partial class PipelineView : UserControl, IPipelineView
             if (selected is not null)
                 _ = RunUiAsync(() => SelectCardAsync(selected));
         }
+        UpdateRoleActions();
     }
 
     public void ShowStatus(string text, bool isError)
@@ -192,7 +229,7 @@ public partial class PipelineView : UserControl, IPipelineView
         _dragMoves = result.Ok && result.Value is not null
             ? result.Value
                 .Where(move => move.Allowed || move.Reason is not null)
-                .ToDictionary(move => move.TargetStage.ToString(), move => move)
+                .ToDictionary(move => PipelineStageDefinition.Key(move.TargetStage), move => move)
             : new Dictionary<string, LeadMoveOptionDto>();
         foreach (PipelineColumnControl column in boardPanel.Controls)
         {
@@ -254,8 +291,8 @@ public partial class PipelineView : UserControl, IPipelineView
         foreach (var move in result.Value.Where(move => move.Allowed))
         {
             var stageName = _presenter.Stages.FirstOrDefault(stage =>
-                stage.Key == move.TargetStage.ToString())?.Name
-                ?? move.TargetStage.ToString();
+                stage.Key == PipelineStageDefinition.Key(move.TargetStage))?.Name
+                ?? _presenter.StageDisplayName(move.TargetStage);
             menu.Items.Add(stageName, null, (_, _) =>
                 _ = RunUiAsync(() => ExecuteMoveAsync(leadId, move.TargetStage, move)));
         }
@@ -370,7 +407,7 @@ public partial class PipelineView : UserControl, IPipelineView
         splitDetail.Panel2Collapsed = false;
         lblContact.Text = card.ContactName;
         lblParcel.Text = card.ParcelLabel;
-        lblStage.Text = card.Stage.ToString();
+        lblStage.Text = card.StageName;
         lblAgent.Text = card.AgentName ?? "Unassigned";
         var timeline = await _presenter.TimelineAsync(card.LeadId);
         timelineList.Controls.Clear();
@@ -402,8 +439,9 @@ public partial class PipelineView : UserControl, IPipelineView
         {
             await action();
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            AppLog.Error("PipelineView.RunUiAsync", ex);
             if (!IsDisposed)
                 ShowStatus("The pipeline action could not be completed. Try again.", true);
         }
@@ -419,6 +457,15 @@ public partial class PipelineView : UserControl, IPipelineView
     {
         if (_presenter is null) return;
         var canMutate = _presenter.CanMutate;
+        var selectedStage = _board?.Columns.SelectMany(column => column.Cards)
+            .FirstOrDefault(card => card.LeadId == _selectedLeadId)?.Stage;
+        var canRequestClosed = selectedStage == _presenter.ClosingStage;
+        var requestClosedReason = !canMutate
+            ? _presenter.MutationUnavailableReason
+            : canRequestClosed
+                ? null
+                : $"Request Closed is available only from {_presenter.StageDisplayName(_presenter.ClosingStage)}.";
+        btnConfigureStages.Visible = _presenter.IsAdmin;
         ButtonStyle.ApplyAvailability([
             new ButtonAvailability(btnMove, canMutate, canMutate, _presenter.MutationUnavailableReason, false),
             new ButtonAvailability(btnLogCall, canMutate, canMutate, _presenter.MutationUnavailableReason, false),
@@ -426,11 +473,27 @@ public partial class PipelineView : UserControl, IPipelineView
             new ButtonAvailability(btnLogEmail, canMutate, canMutate, _presenter.MutationUnavailableReason, false),
             new ButtonAvailability(btnLogViewing, canMutate, canMutate, _presenter.MutationUnavailableReason, false),
             new ButtonAvailability(btnAddNote, canMutate, canMutate, _presenter.MutationUnavailableReason, false),
-            new ButtonAvailability(btnRequestClosed, canMutate, canMutate, _presenter.MutationUnavailableReason, false),
+            new ButtonAvailability(btnRequestClosed, canMutate, canMutate && canRequestClosed, requestClosedReason, false),
             new ButtonAvailability(btnSwitchLot, canMutate, canMutate, _presenter.MutationUnavailableReason, false)
         ], _tooltip);
         btnOpenContact.Visible = true;
         btnShowMap.Visible = true;
+    }
+
+    private async Task ConfigureStagesAsync()
+    {
+        if (_presenter is null || !_presenter.IsAdmin) return;
+        var stages = await _presenter.GetPipelineStagesForAdminAsync();
+        if (!stages.Ok || stages.Value is null)
+        {
+            ShowStatus(stages.Message, true);
+            return;
+        }
+
+        using var dialog = new PipelineStagesDialog(stages.Value, _presenter.SavePipelineStagesAsync);
+        if (dialog.ShowDialog(FindForm()) != DialogResult.OK) return;
+        ShowStatus(dialog.Result?.Message ?? "Pipeline stages saved.", false);
+        await ReloadAsync();
     }
 
     private void ScrollBoardFromMouse()
@@ -483,6 +546,13 @@ public partial class PipelineView : UserControl, IPipelineView
         catch { }
     }
 
-    private readonly record struct ParcelFilter(Guid Id, string Name);
-    private readonly record struct StaffFilter(Guid Id, string Name);
+    private sealed record ParcelFilter(Guid Id, string Name)
+    {
+        public override string ToString() => Name;
+    }
+
+    private sealed record StaffFilter(Guid Id, string Name)
+    {
+        public override string ToString() => Name;
+    }
 }

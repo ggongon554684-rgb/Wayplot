@@ -139,30 +139,30 @@ public partial class LeafletMapControl : UserControl, IParcelMapControl
 
     protected override async void OnLoad(EventArgs e)
     {
-        base.OnLoad(e);
-        if (DesignMode)
-            return;
-
         try
         {
+            base.OnLoad(e);
+            if (DesignMode)
+                return;
+
             await webView.EnsureCoreWebView2Async();
             ConfigureCoreWebView();
         }
         catch (WebView2RuntimeNotFoundException)
         {
-            ShowUnavailable("The parcel map needs Microsoft Edge WebView2 Runtime. Install the Evergreen WebView2 Runtime from microsoft.com/edge/webview2, then restart WayPlot.");
+            ShowUnavailable("The parcel map needs the Microsoft Edge WebView2 Runtime. Install it, then restart WayPlot.");
         }
-        catch (COMException ex)
+        catch (COMException)
         {
-            ShowUnavailable($"The parcel map could not start WebView2. Install or repair the Microsoft Edge WebView2 Runtime. {ex.Message}");
+            ShowUnavailable("The parcel map could not start WebView2. Install or repair the runtime.");
         }
-        catch (UnauthorizedAccessException ex)
+        catch (UnauthorizedAccessException)
         {
-            ShowUnavailable($"The parcel map could not access its browser profile. {ex.Message}");
+            ShowUnavailable("The parcel map could not access its browser profile.");
         }
-        catch (IOException ex)
+        catch (IOException)
         {
-            ShowUnavailable($"The parcel map files could not be loaded. {ex.Message}");
+            ShowUnavailable("The parcel map files could not be loaded.");
         }
         catch (Exception)
         {

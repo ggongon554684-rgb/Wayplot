@@ -24,6 +24,11 @@ public partial class ContactsView : UserControl, IContactsView
     public ContactsView()
     {
         InitializeComponent();
+        splitMain.Panel2Collapsed = false;
+        splitMain.SplitterDistance = 420;
+        splitMain.Panel1MinSize = 420;
+        splitMain.Panel2MinSize = 330;
+        splitMain.Panel2Collapsed = true;
         transientStatusTimer = new System.Windows.Forms.Timer(components!) { Interval = 4000 };
         transientStatusTimer.Tick += (_, _) => RestoreStatus();
         ApplyTheme();
@@ -46,7 +51,7 @@ public partial class ContactsView : UserControl, IContactsView
         btnKindLandowners.Click += (_, _) => AsyncUiEvent.Run(this, () => SetKindAsync(PersonKind.Landowner), "Could not filter contacts. Try again.");
         cboAgent.SelectedIndexChanged += (_, _) => AsyncUiEvent.Run(this, async () =>
         {
-            if (_presenter is null) return;
+            if (_presenter is null || _filterLoading > 0) return;
             _presenter.SetAgentFilter(cboAgent.SelectedItem is StaffListItem staff && staff.Id != Guid.Empty
                 ? staff.Id : null);
             await _presenter.LoadAsync(txtSearch.Text);
@@ -90,8 +95,11 @@ public partial class ContactsView : UserControl, IContactsView
             UpdateImportAction();
             if (_presenter is not null && !DesignMode)
             {
+                AppLog.Info("Contacts: load started");
                 await LoadAgentsAsync();
+                AppLog.Info("Contacts: agents loaded");
                 await _presenter.RefreshDealStatusesAsync();
+                AppLog.Info("Contacts: deal statuses refreshed");
                 if (ShowContactSelection is { } contactId)
                 {
                     _kinds = new HashSet<PersonKind>();
@@ -99,6 +107,7 @@ public partial class ContactsView : UserControl, IContactsView
                     ApplyKindSelection(null);
                 }
                 await _presenter.LoadAsync();
+                AppLog.Info("Contacts: list loaded");
                 if (ShowContactSelection is { } pendingId)
                 {
                     var person = _people.FirstOrDefault(item => item.Id == pendingId);
@@ -128,8 +137,9 @@ public partial class ContactsView : UserControl, IContactsView
                 }
             }
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            AppLog.Error("ContactsView.OnLoad", ex);
             if (!IsDisposed)
                 ShowStatus("Could not load contacts. Try again.", true);
         }
@@ -147,8 +157,12 @@ public partial class ContactsView : UserControl, IContactsView
         listContacts.Font = Theme.Body;
         listContacts.BackColor = Theme.Surface;
         listContacts.ForeColor = Theme.Text;
-        detailPanel.BackColor = Theme.Surface;
+        // Detail panel: left border acts as a visual separator from the list
+        detailPanel.BackColor = Color.FromArgb(218, 220, 224); // border colour
         detailBody.BackColor = Theme.Surface;
+        // Header strip for the detail panel
+        detailTop.BackColor = Theme.Surface;
+        detailScroll.BackColor = Theme.Surface;
         ButtonStyle.Apply(btnNew, true);
         ButtonStyle.Apply(btnImport, false);
         ButtonStyle.Apply(btnCloseDetail, false);
@@ -187,6 +201,10 @@ public partial class ContactsView : UserControl, IContactsView
         selected.ForeColor = Color.White;
     }
 
+    // Incremented while filter combos are being populated so the SelectedIndexChanged
+    // handler ignores those programmatic changes and does not trigger a redundant reload.
+    private int _filterLoading;
+
     private async Task LoadAgentsAsync()
     {
         if (_presenter is null || !_presenter.IsAdmin) return;
@@ -196,25 +214,36 @@ public partial class ContactsView : UserControl, IContactsView
             ShowStatus(result.Message, true);
             return;
         }
-        cboAgent.Items.Clear();
-        cboAgent.Items.Add(new StaffListItem(Guid.Empty, "", "All agents", "", null, true, 0, 0));
-        foreach (var staff in result.Value.Where(item => item.Role == Roles.Agent && item.IsActive))
-            cboAgent.Items.Add(staff);
-        cboAgent.SelectedIndex = 0;
-        cboAgent.Visible = true;
+        _filterLoading++;
+        try
+        {
+            cboAgent.Items.Clear();
+            cboAgent.Items.Add(new StaffListItem(Guid.Empty, "", "All agents", "", null, true, 0, 0));
+            foreach (var staff in result.Value.Where(item => item.Role == Roles.Agent && item.IsActive))
+                cboAgent.Items.Add(staff);
+            cboAgent.SelectedIndex = 0;
+            cboAgent.Visible = true;
+        }
+        finally
+        {
+            _filterLoading--;
+        }
     }
 
     private void FitColumns()
     {
+        // With the detail pane open the list is only ~420-800 px wide, so Email, Agent and Parcels
+        // collapse to zero width instead of pushing Deals/Balance off the edge behind a scrollbar.
+        var compact = !splitMain.Panel2Collapsed;
         colName.Width = LogicalToDeviceUnits(210);
-        colKind.Width = LogicalToDeviceUnits(110);
-        colPhone.Width = LogicalToDeviceUnits(140);
-        colEmail.Width = LogicalToDeviceUnits(220);
-        colAgent.Width = LogicalToDeviceUnits(140);
+        colKind.Width = LogicalToDeviceUnits(90);
+        colPhone.Width = LogicalToDeviceUnits(130);
+        colEmail.Width = compact ? 0 : LogicalToDeviceUnits(220);
+        colAgent.Width = compact ? 0 : LogicalToDeviceUnits(140);
         colOpenLeads.Width = LogicalToDeviceUnits(90);
         colDeals.Width = LogicalToDeviceUnits(70);
-        colBalance.Width = LogicalToDeviceUnits(120);
-        colParcels.Width = LogicalToDeviceUnits(80);
+        colBalance.Width = LogicalToDeviceUnits(110);
+        colParcels.Width = compact ? 0 : LogicalToDeviceUnits(80);
         var used = colName.Width + colKind.Width + colPhone.Width + colEmail.Width
             + colAgent.Width + colOpenLeads.Width + colDeals.Width + colBalance.Width + colParcels.Width;
         colName.Width = Math.Max(colName.Width,
@@ -287,8 +316,9 @@ public partial class ContactsView : UserControl, IContactsView
         _normalStatus = people.Count == 200
             ? "Showing the first 200. Refine the search."
             : people.Count == 1 ? "1 person" : $"{people.Count} people";
-        if (lblSummary.Text.StartsWith("Loading", StringComparison.Ordinal))
-            lblSummary.Text = _normalStatus;
+        // Always update summary when fresh data arrives, not only while "Loading..."
+        lblSummary.Text = _normalStatus;
+        lblSummary.ForeColor = Theme.Muted;
         listContacts.BeginUpdate();
         listContacts.Items.Clear();
         foreach (var person in people)
@@ -356,6 +386,7 @@ public partial class ContactsView : UserControl, IContactsView
         lblDetailName.Text = person.Name;
         ApplyPreferredDetailWidth();
         splitMain.Panel2Collapsed = false;
+        FitColumns();
 
         detailBody.Controls.Clear();
         detailBody.SuspendLayout();
@@ -603,49 +634,82 @@ public partial class ContactsView : UserControl, IContactsView
         {
             Text = text,
             AutoSize = true,
-            MaximumSize = new Size(300, 0),
+            MaximumSize = new Size(DetailTextWidth(), 0),
             ForeColor = Theme.Text,
             Margin = new Padding(12, 4, 12, 4)
         };
         detailBody.Controls.Add(label);
     }
 
+    private int DetailTextWidth() =>
+        Math.Max(LogicalToDeviceUnits(200), detailScroll.ClientSize.Width - LogicalToDeviceUnits(48));
+
     private void AddLeadCard(PeopleListItemDto person, ContactLeadCardDto lead)
     {
+        // Outer card panel
         var card = new Panel
         {
             Margin = new Padding(12, 4, 12, 8),
-            Padding = new Padding(10),
+            Padding = new Padding(12, 10, 12, 10),
             BackColor = Theme.Page,
-            Width = 320,
-            Height = 122
+            BorderStyle = BorderStyle.FixedSingle,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            Anchor = AnchorStyles.Left | AnchorStyles.Right
         };
+
+        // Inner layout: stacks title / stage / agent / buttons vertically
+        var inner = new TableLayoutPanel
+        {
+            ColumnCount = 1,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            Dock = DockStyle.Top,
+            Margin = new Padding(0)
+        };
+        inner.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+
         var title = new Label
         {
             Text = lead.ParcelLabel,
             Font = Theme.BodyBold,
             ForeColor = Theme.Navy,
-            Location = new Point(10, 8),
-            AutoSize = true
+            AutoSize = true,
+            Margin = new Padding(0, 0, 0, 2)
         };
         var stage = new Label
         {
-            Text = $"Stage: {lead.Stage}",
-            Location = new Point(10, 34),
+            Text = $"Stage: {lead.StageName}",
             AutoSize = true,
-            ForeColor = Theme.Text
+            ForeColor = Theme.Text,
+            Margin = new Padding(0, 0, 0, 2)
         };
         var agent = new Label
         {
             Text = $"Agent: {lead.AgentName}",
-            Location = new Point(10, 54),
             AutoSize = true,
-            ForeColor = Theme.Muted
+            ForeColor = Theme.Muted,
+            Margin = new Padding(0, 0, 0, 6)
         };
-        var map = new Button { Text = "Show on map", Location = new Point(10, 82), AutoSize = true };
+
+        // Action buttons in a wrap-friendly FlowLayoutPanel
+        var btnFlow = new FlowLayoutPanel
+        {
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = true,
+            Dock = DockStyle.Top,
+            Margin = new Padding(0)
+        };
+        var map = new Button { Text = "Show on map", AutoSize = true, Margin = new Padding(0, 0, 6, 4) };
         ButtonStyle.Apply(map, false);
         map.Click += (_, _) => ShowParcelOnMap?.Invoke(lead.ParcelId);
-        card.Controls.AddRange([title, stage, agent, map]);
+        btnFlow.Controls.Add(map);
+
+        inner.Controls.Add(title);
+        inner.Controls.Add(stage);
+        inner.Controls.Add(agent);
 
         if (_presenter is not null && _presenter.CanAddOrSwitchLeads
             && lead.Stage is not LeadStage.Closed and not LeadStage.Lost)
@@ -653,24 +717,26 @@ public partial class ContactsView : UserControl, IContactsView
             var switchButton = new Button
             {
                 Text = "Switch lot",
-                Location = new Point(125, 82),
-                AutoSize = true
+                AutoSize = true,
+                Margin = new Padding(0, 0, 6, 4)
             };
             ButtonStyle.Apply(switchButton, false);
             switchButton.Click += (_, _) => AsyncUiEvent.Run(this, () => SwitchLotAsync(person, lead), "Could not switch the lead's lot. Try again.");
-            card.Controls.Add(switchButton);
+            btnFlow.Controls.Add(switchButton);
 
             var requestClosed = new Button
             {
                 Text = "Request Closed",
-                Location = new Point(10, 108),
-                AutoSize = true
+                AutoSize = true,
+                Margin = new Padding(0, 0, 6, 4)
             };
-            card.Height = 148;
             ButtonStyle.Apply(requestClosed, false);
+            btnFlow.Controls.Add(requestClosed);
             _ = ConfigureRequestClosedButtonAsync(requestClosed, lead.LeadId);
-            card.Controls.Add(requestClosed);
         }
+
+        inner.Controls.Add(btnFlow);
+        card.Controls.Add(inner);
         detailBody.Controls.Add(card);
     }
 
@@ -684,12 +750,15 @@ public partial class ContactsView : UserControl, IContactsView
         if (IsDisposed) return;
         if (option is null)
         {
-            button.Enabled = false;
-            actionToolTip.SetToolTip(button, "Closed request options are unavailable.");
+            ButtonStyle.ApplyAvailability([
+                new ButtonAvailability(button, true, false, "Closed request options are unavailable.", false)
+            ], actionToolTip);
             return;
         }
-        button.Enabled = option.Allowed;
-        actionToolTip.SetToolTip(button, option.Allowed ? "Request Closed" : option.Reason);
+        // ApplyAvailability gives a blocked button the muted look the rest of the app uses.
+        ButtonStyle.ApplyAvailability([
+            new ButtonAvailability(button, true, option.Allowed, option.Allowed ? null : option.Reason, false)
+        ], actionToolTip);
         if (option.Allowed)
         {
             button.Click += (_, _) => AsyncUiEvent.Run(this, () => RequestClosedAsync(leadId), "Could not request Closed. Try again.");
@@ -822,6 +891,7 @@ public partial class ContactsView : UserControl, IContactsView
     private void CloseDetail()
     {
         splitMain.Panel2Collapsed = true;
+        FitColumns();
         _selectedPersonId = null;
         _selectedPerson = null;
         detailBody.Controls.Clear();

@@ -23,6 +23,7 @@ public sealed class TenantSeeder(
     TenantSession session,
     SessionContext userSession,
     TenantAccessPolicy access,
+    IPipelineStageProvider pipelineStages,
     Func<bool> isDevelopment)
 {
     // ---- Fixed demo data (hand-written, so every run is identical) ----
@@ -36,11 +37,7 @@ public sealed class TenantSeeder(
     private const double MetersPerDegreeLat = 111_000.0;
     private static readonly double MetersPerDegreeLon = 111_320.0 * Math.Cos(CenterLatitude * Math.PI / 180.0);
 
-    private const LeadStage New = LeadStage.New;
-    private const LeadStage Contacted = LeadStage.Contacted;
-    private const LeadStage Viewing = LeadStage.Viewing;
-    private const LeadStage Negotiation = LeadStage.Negotiation;
-    private const LeadStage Lost = LeadStage.Lost;
+    private enum SeedLeadPosition { New, First, Middle, Closing, Lost }
 
     /// <summary>One status per parcel: 7 Available, 3 Reserved, 2 Sold.</summary>
     private static readonly ParcelStatus[] ParcelStatuses =
@@ -50,22 +47,21 @@ public sealed class TenantSeeder(
         ParcelStatus.Available, ParcelStatus.Sold,      ParcelStatus.Reserved, ParcelStatus.Available
     ];
 
-    /// <summary>Lead stages per parcel (30 leads). Consistent with the parcel status:
-    /// Available has no Negotiation, Reserved has exactly one Negotiation, Sold has only Lost leads.</summary>
-    private static readonly LeadStage[][] LeadPlan =
+    /// <summary>Lead positions per parcel (30 leads). Reserved parcels have one closing-stage lead.</summary>
+    private static readonly SeedLeadPosition[][] LeadPlan =
     [
-        [Viewing, Contacted, New],          // 1  Available
-        [Contacted, New],                   // 2  Available
-        [Negotiation, Viewing, Lost],       // 3  Reserved
-        [Viewing, New, New],                // 4  Available
-        [Lost, Lost],                       // 5  Sold
-        [Contacted, New, Lost],             // 6  Available
-        [Negotiation, Contacted, Lost],     // 7  Reserved
-        [Viewing, Contacted],               // 8  Available
-        [New, Contacted, New],              // 9  Available
-        [Lost, Lost],                       // 10 Sold
-        [Negotiation, Viewing, Lost],       // 11 Reserved
-        [New]                               // 12 Available
+        [SeedLeadPosition.Middle, SeedLeadPosition.First, SeedLeadPosition.New],
+        [SeedLeadPosition.First, SeedLeadPosition.New],
+        [SeedLeadPosition.Closing, SeedLeadPosition.Middle, SeedLeadPosition.Lost],
+        [SeedLeadPosition.Middle, SeedLeadPosition.New, SeedLeadPosition.New],
+        [SeedLeadPosition.Lost, SeedLeadPosition.Lost],
+        [SeedLeadPosition.First, SeedLeadPosition.New, SeedLeadPosition.Lost],
+        [SeedLeadPosition.Closing, SeedLeadPosition.First, SeedLeadPosition.Lost],
+        [SeedLeadPosition.Middle, SeedLeadPosition.First],
+        [SeedLeadPosition.New, SeedLeadPosition.First, SeedLeadPosition.New],
+        [SeedLeadPosition.Lost, SeedLeadPosition.Lost],
+        [SeedLeadPosition.Closing, SeedLeadPosition.Middle, SeedLeadPosition.Lost],
+        [SeedLeadPosition.New]
     ];
 
     private static readonly string[] ContactNames =
@@ -252,6 +248,7 @@ public sealed class TenantSeeder(
 
     private async Task<RuleResult> SeedCoreAsync(string? companyName)
     {
+        await pipelineStages.EnsureLoadedAsync();
         var rnd = new Random(2026);
 
         // 1. Three owners: the company itself and two landowners.
@@ -363,7 +360,7 @@ public sealed class TenantSeeder(
 
                 await AdvanceAsync(lead.Id, target, parcels[p], rnd);
 
-                if (target != Lost && !contactsWithActiveLead.Contains(contactIndex))
+                if (target != SeedLeadPosition.Lost && !contactsWithActiveLead.Contains(contactIndex))
                     contactsWithActiveLead.Add(contactIndex);
             }
         }
@@ -445,36 +442,56 @@ public sealed class TenantSeeder(
     }
 
     /// <summary>Moves a new lead (stage New) to its target one legal step at a time, so StageHistory is complete.</summary>
-    private async Task AdvanceAsync(Guid leadId, LeadStage target, ParcelDto parcel, Random rnd)
+    private async Task AdvanceAsync(Guid leadId, SeedLeadPosition target, ParcelDto parcel, Random rnd)
     {
-        switch (target)
+        if (target == SeedLeadPosition.New)
+            return;
+
+        var activeStages = pipelineStages.GetConfiguration()
+            .Where(stage => stage.IsActive)
+            .OrderBy(stage => stage.SortOrder)
+            .ToList();
+        if (target == SeedLeadPosition.Lost)
         {
-            case New:
-                return;
+            if (activeStages[0].Stage != LeadStage.Negotiation)
+                await MoveAsync(leadId, activeStages[0].Stage, "First call made.");
+            var reason = parcel.Status == ParcelStatus.Sold
+                ? "Parcel was sold to another buyer"
+                : LostReasons[rnd.Next(LostReasons.Length)];
+            await MoveAsync(leadId, LeadStage.Lost, null, reason);
+            return;
+        }
 
-            case Contacted:
-                await MoveAsync(leadId, Contacted, "First call made.");
-                return;
-
-            case Viewing:
-                await MoveAsync(leadId, Contacted, "First call made.");
-                await MoveAsync(leadId, Viewing, "Site visit scheduled and done.",
-                    offer: rnd.Next(0, 2) == 0 ? OfferFor(parcel, rnd) : null);
-                return;
-
-            case Negotiation:
-                await MoveAsync(leadId, Contacted, "First call made.");
-                await MoveAsync(leadId, Viewing, "Site visit done.");
-                await MoveAsync(leadId, Negotiation, "Price discussion started.", offer: OfferFor(parcel, rnd));
-                return;
-
-            case Lost:
-                await MoveAsync(leadId, Contacted, "First call made.");
-                var reason = parcel.Status == ParcelStatus.Sold
-                    ? "Parcel was sold to another buyer"
-                    : LostReasons[rnd.Next(LostReasons.Length)];
-                await MoveAsync(leadId, Lost, null, reason);
-                return;
+        var targetIndex = target switch
+        {
+            SeedLeadPosition.First => activeStages.Count == 1
+                && activeStages[0].Stage == LeadStage.Negotiation ? -1 : 0,
+            SeedLeadPosition.Middle => activeStages.Count < 2 ? -1 : 1,
+            SeedLeadPosition.Closing => activeStages.Count - 1,
+            _ => throw new InvalidOperationException("The demo lead position is not supported.")
+        };
+        if (targetIndex < 0)
+            return;
+        for (var index = 0; index <= targetIndex; index++)
+        {
+            var isTarget = index == targetIndex;
+            var note = isTarget
+                ? target switch
+                {
+                    SeedLeadPosition.First => "First call made.",
+                    SeedLeadPosition.Middle => "Site visit scheduled and done.",
+                    SeedLeadPosition.Closing => "Price discussion started.",
+                    _ => "Lead progressed."
+                }
+                : index == 0 ? "First call made."
+                : index == 1 ? "Site visit done."
+                : $"Progressed to {activeStages[index].Name}.";
+            decimal? offer = isTarget && target == SeedLeadPosition.Closing
+                ? OfferFor(parcel, rnd)
+                : isTarget && target == SeedLeadPosition.Middle && rnd.Next(0, 2) == 0
+                    ? OfferFor(parcel, rnd)
+                    : null;
+            await MoveAsync(leadId, activeStages[index].Stage, note, offer: offer);
         }
     }
 
@@ -482,7 +499,8 @@ public sealed class TenantSeeder(
     {
         var result = await leadService.MoveStageAsync(new MoveStageRequest(leadId, to, note, lostReason, offer));
         if (!result.Ok)
-            throw new SeedFailure($"A lead could not move to {to}: {result.Message}");
+            throw new SeedFailure(
+                $"A lead could not move to {pipelineStages.GetDisplayName(to)}: {result.Message}");
     }
 
     /// <summary>An offer between 90% and 98% of the price, rounded to the nearest thousand.</summary>

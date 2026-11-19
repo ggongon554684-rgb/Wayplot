@@ -90,7 +90,7 @@ public partial class LeadFileDialog : Form
     {
         if (MoveHandler is null) return;
 
-        using var dialog = new MoveStageDialog();
+        using var dialog = new MoveStageDialog(_file.Stages);
         if (dialog.ShowDialog(this) != DialogResult.OK || dialog.Result is not { } move)
             return;
 
@@ -159,7 +159,7 @@ public partial class LeadFileDialog : Form
         lblContactName.Text = file.ContactName;
         lblContactInfo.Text = $"Phone: {Dash(file.ContactPhone)} · Email: {Dash(file.ContactEmail)}";
         lblParcel.Text = "Parcel: " + file.ParcelLabel;
-        lblStage.Text = "Stage: " + EnumText.Pretty(file.Stage);
+        lblStage.Text = "Stage: " + file.StageName;
         lblOffer.Text = file.OfferAmount is { } offer
             ? "Offer: ₱" + offer.ToString("N0", CultureInfo.CurrentCulture)
             : "Offer: —";
@@ -168,8 +168,8 @@ public partial class LeadFileDialog : Form
         listHistory.Items.Clear();
         foreach (var row in file.History)
         {
-            var from = row.FromStage is { } stage ? EnumText.Pretty(stage) : "Start";
-            var item = new ListViewItem($"{from} → {EnumText.Pretty(row.ToStage)}");
+            var from = row.FromStage is not null ? row.FromStageName : "Start";
+            var item = new ListViewItem($"{from} → {row.ToStageName}");
             item.SubItems.Add(row.ChangedAtUtc.ToLocalTime().ToString("g", CultureInfo.CurrentCulture));
             item.SubItems.Add(Dash(row.Note));
             listHistory.Items.Add(item);

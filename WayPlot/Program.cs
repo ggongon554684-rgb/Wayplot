@@ -7,6 +7,7 @@ using WayPlot.Presenters;
 using WayPlot.Views;
 using WayPlot.domain.Services.DataCollection;
 using WayPlot.domain.Services.MainTransaction;
+using WayPlot.domain.Services.Admin;
 using WayPlot.UI;
 
 namespace WayPlot;
@@ -78,6 +79,7 @@ internal static class Program
                         sp.GetRequiredService<DealService>(),
                         sp.GetRequiredService<WayPlot.domain.Services.Admin.StaffService>(),
                         sp.GetRequiredService<IPipelineStageProvider>(),
+                        sp.GetRequiredService<PipelineConfigService>(),
                         sp.GetRequiredService<ICurrentUser>(),
                         sp.GetRequiredService<TenantAccessPolicy>());
                     return view;
@@ -86,7 +88,10 @@ internal static class Program
                 {
                     var view = new DealsView();
                     view.Presenter = new DealsPresenter(
-                        view, sp.GetRequiredService<DealService>(), sp.GetRequiredService<ICurrentUser>());
+                        view,
+                        sp.GetRequiredService<DealService>(),
+                        sp.GetRequiredService<ICurrentUser>(),
+                        sp.GetRequiredService<IPipelineStageProvider>());
                     return view;
                 },
                 ["commissions"] = () =>
@@ -120,7 +125,8 @@ internal static class Program
                     var view = new AdminReviewView();
                     view.Presenter = new AdminReviewPresenter(
                         sp.GetRequiredService<DealService>(),
-                        sp.GetRequiredService<CommissionService>());
+                        sp.GetRequiredService<CommissionService>(),
+                        sp.GetRequiredService<IPipelineStageProvider>());
                     return view;
                 }
             };

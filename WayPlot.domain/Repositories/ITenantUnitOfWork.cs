@@ -26,6 +26,7 @@ public interface ITenantUnitOfWork : IAsyncDisposable
 
     Task ExecuteInTransactionAsync(Func<Task> operation);
     Task ExecuteInTransactionAsync(Func<Task> operation, IsolationLevel isolationLevel);
+    Task<bool> AcquirePipelineStagesLockAsync();
 }
 
 /// <summary>Creates a unit of work for the signed-in tenant. Services call Create() per operation and never keep the result.</summary>

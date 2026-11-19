@@ -170,7 +170,9 @@ public partial class AdminReviewView : UserControl
         if (_presenter is null || _selectedEntry is not ClosedEntry entry) return;
         try
         {
-            if (MessageBox.Show(FindForm(), "Return this Closed request to Negotiation?",
+            if (MessageBox.Show(
+                    FindForm(),
+                    $"Return this Closed request to {_presenter.StageDisplayName(entry.Deal.LeadStage)}?",
                     "Return request", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
                 return;
             var result = await _presenter.ReturnClosedAsync(entry.Deal.Id);

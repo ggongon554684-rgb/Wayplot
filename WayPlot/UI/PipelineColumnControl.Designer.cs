@@ -18,6 +18,13 @@ namespace WayPlot.UI
             layout.SuspendLayout();
             SuspendLayout();
             layout.ColumnCount = 1;
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            // Without these row styles the cards row only grows to its content, so the
+            // card list never fills the column and shows stray scrollbars.
+            layout.RowCount = 3;
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
             layout.Dock = DockStyle.Fill;
             layout.Padding = new Padding(8);
             layout.Controls.Add(lblHeader, 0, 0);
@@ -26,16 +33,17 @@ namespace WayPlot.UI
             lblHeader.AutoSize = true;
             lblHeader.Margin = new Padding(4, 4, 4, 8);
             lblNotice.AutoSize = true;
-            lblNotice.MaximumSize = new Size(260, 0);
+            lblNotice.MaximumSize = new Size(280, 0);
             lblNotice.Margin = new Padding(4, 0, 4, 6);
             lblNotice.Visible = false;
             cards.Dock = DockStyle.Fill;
+            cards.Margin = new Padding(0);
             cards.FlowDirection = FlowDirection.TopDown;
             cards.WrapContents = false;
             cards.AutoScroll = true;
             Controls.Add(layout);
-            MinimumSize = new Size(280, 240);
-            Size = new Size(280, 500);
+            MinimumSize = new Size(300, 240);
+            Size = new Size(300, 500);
             Name = "PipelineColumnControl";
             layout.ResumeLayout(false);
             layout.PerformLayout();

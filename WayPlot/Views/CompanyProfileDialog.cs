@@ -21,7 +21,8 @@ public partial class CompanyProfileDialog : Form
         lblError.ForeColor = ColorTranslator.FromHtml("#8F2A1B");
         ButtonStyle.Apply(btnSave, true);
         ButtonStyle.Apply(btnCancel, false);
-        btnSave.Click += async (_, _) => await SaveAsync();
+        btnSave.Click += (_, _) =>
+            AsyncUiEvent.Run(this, SaveAsync, "The company profile could not be saved. Try again.");
     }
 
     [Browsable(false)]

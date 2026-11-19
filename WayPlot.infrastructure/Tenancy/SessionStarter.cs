@@ -8,13 +8,18 @@ namespace WayPlot.infrastructure.Tenancy;
 
 /// <summary>Runs once after a successful login: fills SessionContext, points TenantSession at the tenant database,
 /// and makes sure the user has a Staff row there (Staff.Id = the login's UserId).</summary>
-public sealed class SessionStarter(SessionContext session, TenantSession tenant, ITenantDbContextFactory dbFactory)
+public sealed class SessionStarter(
+    SessionContext session,
+    TenantSession tenant,
+    ITenantDbContextFactory dbFactory,
+    IPipelineStageProvider pipelineStages)
 {
     public async Task<RuleResult> StartAsync(LoginResult login)
     {
         if (login.TenantId is null || string.IsNullOrWhiteSpace(login.DatabaseName))
             return RuleResult.Fail("This account is not linked to a tenant database.");
 
+        pipelineStages.ClearCache();
         // Filled first so the audit fields on the Staff row carry this user's name.
         session.UserId = login.UserId;
         session.UserName = login.Username;
@@ -70,6 +75,7 @@ public sealed class SessionStarter(SessionContext session, TenantSession tenant,
     /// <summary>Sign-out, or a failed start. Clears everything the start filled.</summary>
     public void End()
     {
+        pipelineStages.ClearCache();
         session.UserId = null;
         session.UserName = "anonymous";
         session.TenantId = null;

@@ -1,4 +1,4 @@
-﻿using System.ComponentModel;
+using System.ComponentModel;
 using WayPlot.domain.Common;
 using WayPlot.domain.Contracts;
 using WayPlot.UI;
@@ -13,7 +13,7 @@ public partial class AttachLeadDialog : Form
     public AttachLeadDialog()
     {
         InitializeComponent();
-        _searchTimer = new System.Windows.Forms.Timer(components!) { Interval = 350 };
+        _searchTimer = new System.Windows.Forms.Timer { Interval = 350 };
         ApplyTheme();
 
         btnSearch.Click += (_, _) => _ = RunHandlerAsync(SearchAsync, "Could not search contacts. Try again.");

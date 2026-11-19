@@ -207,7 +207,6 @@ public sealed class ParcelMapPresenter(
     {
         var token = ++_loadToken;
         if (view.IsDisposed) return;
-        _byId.Clear();
         view.ShowMessage("Loading parcels...");
         try
         {
@@ -215,7 +214,7 @@ public sealed class ParcelMapPresenter(
             if (token != _loadToken || view.IsDisposed) return;
             if (!result.Ok || result.Value is null)
             {
-                view.ShowMessage(result.Message);
+                ClearAfterFailedLoad(token, "Could not load parcels. Refresh and try again.");
                 return;
             }
             var list = result.Value;
@@ -231,8 +230,23 @@ public sealed class ParcelMapPresenter(
         catch (Exception ex)
         {
             if (token == _loadToken && !view.IsDisposed)
-                view.ShowMessage($"Could not load the parcels. {ex.Message}");
+            {
+                WayPlot.UI.AppLog.Error("ParcelMapPresenter.LoadAsync", ex);
+                ClearAfterFailedLoad(token, "Could not load parcels. Refresh and try again.");
+            }
         }
+    }
+
+    private void ClearAfterFailedLoad(int token, string message)
+    {
+        if (token != _loadToken || view.IsDisposed)
+            return;
+
+        _byId.Clear();
+        _selectedParcelId = null;
+        _selectionToken++;
+        view.ClearParcel();
+        view.ShowMessage(message);
     }
 
     /// <summary>Called when the agent clicks a parcel (or clicks empty map, id = null).</summary>
@@ -242,10 +256,25 @@ public sealed class ParcelMapPresenter(
         _selectedParcelId = id;
 
         if (view.IsDisposed) return;
-        if (id is null || !_byId.TryGetValue(id.Value, out var parcel))
+        if (id is null)
         {
             view.ClearParcel();
             return;
+        }
+
+        if (!_byId.TryGetValue(id.Value, out var parcel))
+        {
+            // The map can still display features from the previous load while a refresh is in flight.
+            // Refresh once before treating that click as a missing parcel.
+            await LoadAsync();
+            if (token != _selectionToken || view.IsDisposed)
+                return;
+            if (!_byId.TryGetValue(id.Value, out parcel))
+            {
+                view.ClearParcel();
+                view.ShowMessage("That parcel is no longer available. Reload the map and try again.");
+                return;
+            }
         }
 
         // The parcel's own facts are already loaded, so show them at once. The leads follow.

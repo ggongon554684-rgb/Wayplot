@@ -16,7 +16,8 @@ public sealed class ParcelService(
     TenantAccessPolicy access,
     ITenantFeatures features,
     IDomainEventDispatcher events,
-    IClock clock)
+    IClock clock,
+    IPipelineStageProvider pipelineStages)
 {
     public async Task<OwnerResult> CreateOwnerAsync(CreateOwnerRequest request)
     {
@@ -278,6 +279,7 @@ public sealed class ParcelService(
         if (!permission.Ok)
             return ServiceResult<bool>.Fail(permission.Message);
 
+        await pipelineStages.EnsureLoadedAsync();
         await using var uow = uowFactory.Create();
         var parcel = await uow.Parcels.GetAsync(parcelId);
         if (parcel is null)
@@ -297,7 +299,9 @@ public sealed class ParcelService(
             .FirstOrDefault();
         if (blockingLead is { } leadStage)
             return ServiceResult<bool>.Fail(
-                $"Cannot archive parcel \"{parcel.Label}\": it has a lead at stage {leadStage}. Every open lead must be Lost first.");
+                $"Cannot archive parcel \"{parcel.Label}\": it has a lead at stage " +
+                $"{pipelineStages.GetDisplayName(leadStage)}. Every open lead must be " +
+                $"{pipelineStages.GetDisplayName(LeadStage.Lost)} first.");
 
         parcel.IsDeleted = true;
         try

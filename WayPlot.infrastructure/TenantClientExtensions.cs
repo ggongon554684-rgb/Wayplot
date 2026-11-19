@@ -23,9 +23,13 @@ public static class TenantClientExtensions
     {
         services.AddSingleton<IClock, SystemClock>();
         services.AddSingleton<TimeProvider>(TimeProvider.System);
-        services.AddSingleton<IPipelineStageProvider, DefaultPipelineStageProvider>();
         services.AddSingleton<SessionContext>();
         services.AddSingleton<ICurrentUser>(sp => sp.GetRequiredService<SessionContext>());
+        services.AddSingleton<ConfiguredPipelineStageProvider>();
+        services.AddSingleton<IPipelineStageProvider>(sp =>
+            sp.GetRequiredService<ConfiguredPipelineStageProvider>());
+        services.AddSingleton<IDomainEventHandler<PipelineConfigChanged>>(sp =>
+            sp.GetRequiredService<ConfiguredPipelineStageProvider>());
         services.AddSingleton<TenantAccessPolicy>();
         services.AddSingleton(new TenantSession(serverName));
         services.AddSingleton<ITenantDbContextFactory, TenantDbContextFactory>();
@@ -45,6 +49,7 @@ public static class TenantClientExtensions
         services.AddSingleton<LeadService>();
         services.AddSingleton<InteractionService>();
         services.AddSingleton<CommissionService>();
+        services.AddSingleton<PipelineConfigService>();
         services.AddSingleton<DealService>();
         services.AddSingleton<StaffService>();
         services.AddSingleton<CompanyProfileService>();

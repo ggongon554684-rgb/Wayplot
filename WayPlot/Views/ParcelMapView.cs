@@ -1,4 +1,4 @@
-﻿using System.ComponentModel;
+using System.ComponentModel;
 using System.Globalization;
 using WayPlot.domain.Common;
 using WayPlot.domain.Contracts;
@@ -54,9 +54,14 @@ public partial class ParcelMapView : UserControl, IParcelMapView
     public ParcelMapView()
     {
         InitializeComponent();
+        layoutMain.SplitterDistance = 742;
+        layoutMain.Panel1MinSize = 420;
+        layoutMain.Panel2MinSize = 300;
         _map = mapControl;
         BuildFacts();
         ApplyTheme();
+        // Allow the inspector panel to scroll when parcel details exceed the visible height.
+        inspector.AutoScroll = true;
         layoutMain.Panel2Collapsed = true;
 
         transientStatusTimer.Tick += (_, _) => ClearTransientStatus();
@@ -305,7 +310,7 @@ public partial class ParcelMapView : UserControl, IParcelMapView
             foreach (var lead in leads)
             {
                 var item = new ListViewItem(lead.ContactName) { Tag = lead.Id };   // Tag: step 5b opens the lead file from it
-                item.SubItems.Add(lead.Stage.ToString());
+                item.SubItems.Add(lead.StageName);
                 listLeads.Items.Add(item);
             }
         }

@@ -52,9 +52,9 @@ public partial class LoginForm : Form
 
     private async void btnSignIn_Click(object? sender, EventArgs e)
     {
-        btnSignIn.Enabled = false;
         try
         {
+            btnSignIn.Enabled = false;
             var login = await _auth.LoginAsync(txtUser.Text.Trim(), txtPass.Text);
             if (login is null)
             {
@@ -90,15 +90,20 @@ public partial class LoginForm : Form
         }
         catch (HttpRequestException ex)
         {
-            lblMessage.Text = "Cannot reach the server: " + ex.Message;
+            AppLog.Error("LoginForm.btnSignIn_Click", ex);
+            if (!IsDisposed)
+                lblMessage.Text = "Cannot reach the server. Try again.";
         }
         catch (Exception ex)
         {
-            lblMessage.Text = "Could not start the session: " + ex.Message;
+            AppLog.Error("LoginForm.btnSignIn_Click", ex);
+            if (!IsDisposed)
+                lblMessage.Text = "Could not start the session. Try again.";
         }
         finally
         {
-            btnSignIn.Enabled = true;
+            if (!IsDisposed)
+                btnSignIn.Enabled = true;
         }
     }
 

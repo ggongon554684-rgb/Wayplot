@@ -1,4 +1,4 @@
-﻿#nullable enable
+#nullable enable
 namespace WayPlot.Views;
 
 partial class ParcelMapView
@@ -117,10 +117,7 @@ partial class ParcelMapView
         layoutMain.Location = new Point(0, 0);
         layoutMain.Name = "layoutMain";
         layoutMain.Orientation = Orientation.Vertical;
-        layoutMain.Panel1MinSize = 420;
-        layoutMain.Panel2MinSize = 300;
         layoutMain.Size = new Size(1104, 504);
-        layoutMain.SplitterDistance = 742;
         layoutMain.SplitterWidth = 6;
         layoutMain.TabIndex = 0;
         // layoutMain.Panel1
@@ -190,6 +187,7 @@ partial class ParcelMapView
         mapControl.Size = new Size(742, 504);
         mapControl.TabIndex = 0;
         // inspector
+        inspector.AutoScroll = true;
         inspector.BackColor = Color.White;
         inspector.Dock = DockStyle.Fill;
         inspector.Location = new Point(0, 0);
@@ -210,7 +208,8 @@ partial class ParcelMapView
         detailsLayout.Controls.Add(photoStatusLayout, 0, 7);
         detailsLayout.Controls.Add(leadHeaderLayout, 0, 8);
         detailsLayout.Controls.Add(listLeads, 0, 9);
-        detailsLayout.Dock = DockStyle.Fill;
+        detailsLayout.Dock = DockStyle.Top;
+        detailsLayout.AutoSize = true;
         detailsLayout.Location = new Point(12, 12);
         detailsLayout.Name = "detailsLayout";
         detailsLayout.RowCount = 10;
@@ -223,7 +222,7 @@ partial class ParcelMapView
         detailsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 96F));
         detailsLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         detailsLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        detailsLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+        detailsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 120F));
         detailsLayout.Size = new Size(332, 480);
         detailsLayout.TabIndex = 0;
         // parcelHeaderLayout

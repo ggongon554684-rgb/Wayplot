@@ -95,7 +95,7 @@ namespace WayPlot.Views
             lblLead.AutoSize = true;
             lblLead.Margin = new Padding(0, 0, 0, 4);
             lblLead.Name = "lblLead";
-            lblLead.Text = "Negotiation lead";
+            lblLead.Text = "Eligible lead";
             lblLead.UseMnemonic = false;
             cboLead.Dock = DockStyle.Fill;
             cboLead.DropDownStyle = ComboBoxStyle.DropDownList;
