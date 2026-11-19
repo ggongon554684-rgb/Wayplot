@@ -18,7 +18,7 @@ public partial class AttachLeadDialog : Form
 
         btnSearch.Click += (_, _) => _ = RunHandlerAsync(SearchAsync, "Could not search contacts. Try again.");
         btnAttach.Click += (_, _) => _ = RunHandlerAsync(AttachAsync, "Could not attach the contact. Try again.");
-        txtSearch.TextChanged += (_, _) => { _searchTimer.Stop(); _searchTimer.Start(); };v
+        txtSearch.TextChanged += (_, _) => { _searchTimer.Stop(); _searchTimer.Start(); };
         txtSearch.KeyDown += (_, e) =>
         {
             if (e.KeyCode != Keys.Enter) return;
