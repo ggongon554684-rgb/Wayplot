@@ -13,6 +13,15 @@
 
 Non-deleted contacts have unique phone numbers under `UX_Contact_Phone` and unique non-null emails under `UX_Contact_Email`; blank and null emails do not collide. Contact capture trims and lowercases email through `TryNormalizeEmail` before lookup or save. `FindByPhoneOrEmailAsync` still tries phone first. If a concurrent capture wins either unique index, the losing capture looks up the contact again in a fresh unit of work and records the existing duplicate inquiry instead of exposing a database error.
 
+## Parcel and staff rules
+
+- Agents and Tenant Admins may create parcels. Tenant Admins may edit any parcel; Agents may edit only parcels assigned to them. Only Tenant Admins may change parcel prices, reassign parcels, or archive parcels.
+- Branch Managers with an assigned branch may read parcel lists, details, and owners tenant-wide by design (Run E); parcel reads are not branch-filtered. Branch Managers cannot mutate parcels.
+- `TenantStaffProvisioner` provisions/reconciles tenant Staff rows from Master logins. `SessionStarter` creates a missing Staff row or updates its login identity fields at sign-in. `Staff.BranchId` is the only branch source for tenant scope; `SessionStarter` copies it into the session.
+- Payment receipt numbers are unique among non-deleted payments (`UX_Payment_Receipt`).
+- `Parcel.AreaSqm` is stored metadata (the draw flow may prefill it); the service checks only that it is greater than zero and does not compare it with polygon geometry.
+- Tier A has no parcel review or approval step.
+
 ## B3 methods and rules
 
 | Area | Method | Caller | Rule |

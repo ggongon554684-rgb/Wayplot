@@ -1,3 +1,5 @@
+HISTORICAL: written before Runs A, E, C2, C3, B2, B2b, B3, AD1, AD2 and S1. Do not use as current status. See docs/tests/ and docs/DESIGN_CONTRACT.md.
+
 # Tier A use-case status audit
 
 **Audit date:** 2026-11-18  

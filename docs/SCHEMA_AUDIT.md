@@ -1,3 +1,5 @@
+HISTORICAL: written before Runs A, E, C2, C3, B2, B2b, B3, AD1, AD2 and S1. Do not use as current status. See docs/tests/ and docs/DESIGN_CONTRACT.md.
+
 # WayPlot schema, mapping, and parcel-permission audit
 
 ## Scope and method

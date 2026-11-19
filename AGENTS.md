@@ -20,7 +20,7 @@ Multi-tenant, map-based CRM for land and real estate businesses. Staff are the o
 - Role and scope checks go through TenantAccessPolicy. Super Admin is refused all tenant data. Branch Manager reads are branch-scoped, and Branch Manager mutations are refused. Agents see only their own work.
 - Mutations use ExecuteInTransactionAsync and the entity Version token. A Version conflict is refused with a clean message.
 - Each data change raises its existing domain event.
-- Enums are stored as numbers in the database. Never reorder or insert enum members; only append at the end. In new JSON settings, write enums as text and keep reading old numeric values.
+- Enums are stored as text in the database (HaveConversion<string>). Never rename an enum member and never reorder or insert members; only append at the end. In new JSON settings write enums as text and keep reading old numeric values.
 - Pipeline stages come only from IPipelineStageProvider. Do not loop over LeadStage, compare stages by order, or hard-code stage names. Do not call ToString() on LeadStage for display.
 - No schema change and no migration unless the run says so.
 - Do not change a rule from an earlier run.

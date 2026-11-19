@@ -1,3 +1,6 @@
+HISTORICAL: written before Runs A, E, C2, C3, B2, B2b, B3, AD1, AD2 and S1. Do not use as current status. See docs/tests/ and docs/DESIGN_CONTRACT.md.
+Superseded by runs S1 onward. Branch Manager parcel mutation in this file is WRONG: AGENTS.md refuses all Branch Manager mutations.
+
 # Ready-to-run prompt: WayPlot schema and parcel-permission fixes
 
 You are working in the WayPlot repository. Apply the fixes identified in `docs/SCHEMA_AUDIT.md`, in severity order. Before editing, read that audit plus `WayPlot_CRM_Documentation_v3txt.txt`, `wayplot_context.txt`, `wayplot_ui_context.txt`, `docs/TESTING.md`, both EF contexts, every entity/configuration, the tenant/master migrations, all services, presenters/views, and both seeders.
