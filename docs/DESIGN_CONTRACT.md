@@ -9,6 +9,10 @@
 - Admin setting and assignment changes also dispatch `TenantSettingChanged`, `PipelineConfigChanged`, `StaffChanged`, `ContactChanged`, and `ParcelChanged` events.
 - Later screens use the domain DTOs and service methods below instead of entities.
 
+## Contact duplicate rules
+
+Non-deleted contacts have unique phone numbers under `UX_Contact_Phone` and unique non-null emails under `UX_Contact_Email`; blank and null emails do not collide. Contact capture trims and lowercases email through `TryNormalizeEmail` before lookup or save. `FindByPhoneOrEmailAsync` still tries phone first. If a concurrent capture wins either unique index, the losing capture looks up the contact again in a fresh unit of work and records the existing duplicate inquiry instead of exposing a database error.
+
 ## B3 methods and rules
 
 | Area | Method | Caller | Rule |

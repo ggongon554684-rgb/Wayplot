@@ -69,7 +69,20 @@ public sealed class ContactService(
         };
 
         uow.Contacts.Add(contact);
-        await uow.SaveAsync();
+        try
+        {
+            await uow.ExecuteInTransactionAsync(async () => await uow.SaveAsync());
+        }
+        catch (ContactDuplicateConflictException)
+        {
+            await using var retryUow = uowFactory.Create();
+            var racedContact = await retryUow.Contacts.FindByPhoneOrEmailAsync(phone, email);
+            if (racedContact is null)
+                return CaptureResult.Fail(
+                    "A contact with that phone number or email was added at the same time. Retry the capture.");
+
+            return await RecordInquiryOnExistingAsync(retryUow, racedContact, effectiveRequest);
+        }
 
         return CaptureResult.Success(
             new CaptureContactResult(contact.Id, contact.FullName, MatchedExisting: false, InquiryRecorded: false),
@@ -340,7 +353,7 @@ public sealed class ContactService(
             interactionAdded = true;
         }
 
-        await uow.SaveAsync();
+        await uow.ExecuteInTransactionAsync(async () => await uow.SaveAsync());
         if (interactionAdded && lead is not null)
             await events.DispatchAsync(new InteractionLogged(lead.Id, InteractionType.Inquiry, channel, now));
 

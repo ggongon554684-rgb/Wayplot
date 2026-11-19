@@ -113,7 +113,9 @@ public class TenantDbContext : DbContext
             e.HasIndex(c => c.PhoneNormalized).IsUnique()
                 .HasFilter("[PhoneNormalized] IS NOT NULL AND [IsDeleted] = 0")
                 .HasDatabaseName("UX_Contact_Phone");
-            e.HasIndex(c => c.Email);
+            e.HasIndex(c => c.Email).IsUnique()
+                .HasFilter("[Email] IS NOT NULL AND [IsDeleted] = 0")
+                .HasDatabaseName("UX_Contact_Email");
             e.HasIndex(c => c.AssignedStaffId);
             e.HasOne<Staff>().WithMany().HasForeignKey(c => c.AssignedStaffId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne<Staff>().WithMany().HasForeignKey(c => c.ReferrerStaffId).OnDelete(DeleteBehavior.Restrict);

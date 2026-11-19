@@ -105,6 +105,13 @@ internal sealed class TenantUnitOfWork : ITenantUnitOfWork
         {
             throw new ReceiptNumberConflictException(ex);
         }
+        catch (DbUpdateException ex) when (
+            ex.Entries.Any(entry => entry.Entity is Contact)
+            && ex.InnerException is SqlException sql
+            && ContactDuplicateConflictDetector.IsContactUniqueViolation(sql.Number, sql.Message))
+        {
+            throw new ContactDuplicateConflictException(ex);
+        }
     }
 
     public Task ExecuteInTransactionAsync(Func<Task> operation) =>

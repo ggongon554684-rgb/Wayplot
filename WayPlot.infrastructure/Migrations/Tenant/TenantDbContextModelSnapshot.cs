@@ -236,7 +236,10 @@ namespace WayPlot.infrastructure.Migrations.Tenant
 
                     b.HasIndex("AssignedStaffId");
 
-                    b.HasIndex("Email");
+                    b.HasIndex("Email")
+                        .IsUnique()
+                        .HasDatabaseName("UX_Contact_Email")
+                        .HasFilter("[Email] IS NOT NULL AND [IsDeleted] = 0");
 
                     b.HasIndex("PhoneNormalized")
                         .IsUnique()
